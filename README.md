@@ -7,8 +7,7 @@ to the [web-platform-tests repository](https://github.com/w3c/web-platform-tests
 To operate, a `config.json` file is required that looks like this:
 ```json
 {
-    "token": "github token allowing access to w3c/web-platform-tests",
-    "servo_token": "github token allowing access to servo/servo",
+    "servo_token": "github token allowing access to w3c/web-platform-tests and servo/servo"",
     "username": "user",
     "wpt_path": "relative/path/to/web-platform-tests/clone",
     "upstream_org": "w3c",

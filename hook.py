@@ -18,7 +18,6 @@ except:
 with open('config.json') as f:
     config = json.loads(f.read())
     assert 'token' in config
-    assert 'servo_token' in config
     assert 'username' in config
     assert 'wpt_path' in config
     assert 'upstream_org' in config
@@ -34,7 +33,7 @@ def authenticated(method, url, json=None):
     if not method:
         method = 'GET'
     s.headers = {
-        'Authorization': 'token %s' % config['servo_token'],
+        'Authorization': 'token %s' % config['token'],
         'User-Agent': 'Servo web-platform-test sync service',
     }
     print 'fetching %s' % url
@@ -80,7 +79,7 @@ def upstream(servo_pr_number, commits):
 
         remote_url = "https://{user}:{token}@github.com/{user}/web-platform-tests.git".format(
             user=config['username'],
-            token=config['servo_token'],
+            token=config['token'],
         )
 
         # Push the branch upstream (forcing to overwrite any existing changes)
@@ -109,12 +108,20 @@ def change_upstream_pr(upstream, state):
 
     
 def merge_upstream_pr(upstream):
+    modify_upstream_pr_labels('DELETE', ['do not merge yet'], upstream)
     data = {
         'merge_method': 'merge',
     }
     return authenticated('PUT',
                          UPSTREAM_PULLS + '/' + str(upstream) + '/merge',
                          json=data)
+
+
+def modify_upstream_pr_labels(method, labels, pr_number):
+    authenticated(method,
+                  API + ('repos/%s/web-platform-tests/pull/%d/labels' %
+                         (config['upstream_org'], result["id"])),
+                  json=labels)
 
 
 def open_upstream_pr(pr_number, title, source_org, branch, body):
@@ -130,7 +137,9 @@ def open_upstream_pr(pr_number, title, source_org, branch, body):
                       json=data)
     result = r.json()
     pr_db[pr_number] = result["id"]
-    return result["html_url"]
+    pr_url = result["html_url"]
+    modify_upstream_pr_labels('POST', ['servo-export', 'do not merge yet'], pr_number)
+    return pr_url
 
 
 def comment_on_pr(pr_number, upstream_url):
