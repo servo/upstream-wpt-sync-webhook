@@ -1,7 +1,0 @@
-{
-    "token": "0e35591978740f83cc0a7b03a679dfd495bfedcc",
-    "username": "servo-wpt-sync",
-    "wpt_path": "../web-platform-tests",
-    "upstream_org": "w3c",
-    "servo_org": "servo"
-}
