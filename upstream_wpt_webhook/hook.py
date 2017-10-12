@@ -244,12 +244,18 @@ def process_json_payload(payload):
         process_closed_pr(pull_request)    
 
 
-@app.route("/hook")
+@app.route("/")
+def index():
+    return "Hi!"
+
+
+@app.route("/hook", methods=["POST"])
 def webhook():
-    payload = request.args.get('payload')
+    payload = request.args.get('payload', "{}")
     process_json_payload(payload)
     with open('pr_map.json', 'w') as f:
         f.write(json.dumps(pr_map))
+    return ('', 204)
 
 
 def main(port=None):

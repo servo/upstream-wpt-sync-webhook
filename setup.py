@@ -14,7 +14,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'upstream_wpt_webhook=upstream_wpt_webhook.flask_server:main',
+            'upstream_wpt_webhook=upstream_wpt_webhook.hook:main',
         ],
     },
     zip_safe=False,
