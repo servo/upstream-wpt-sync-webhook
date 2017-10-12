@@ -36,7 +36,7 @@ def authenticated(method, url, json=None):
         'Authorization': 'token %s' % config['token'],
         'User-Agent': 'Servo web-platform-test sync service',
     }
-    print 'fetching %s' % url
+    print('fetching %s' % url)
     response = s.request(method, url, json=json)
     if response.status_code / 100 != 2:
         raise ValueError('got unexpected %d response: %s' % (response.status_code, response.text))
@@ -45,7 +45,7 @@ def authenticated(method, url, json=None):
 
 def git(*args, **kwargs):
     command_line = ["git"] + list(*args)
-    print ' '.join(map(lambda x: ('"%s"' % x) if ' ' in x else x, command_line))
+    print(' '.join(map(lambda x: ('"%s"' % x) if ' ' in x else x, command_line)))
     return subprocess.check_output(command_line, cwd=kwargs['cwd'])
 
 
