@@ -22,6 +22,7 @@ with open('config.json') as f:
     assert 'wpt_path' in config
     assert 'upstream_org' in config
     assert 'servo_org' in config
+    assert 'port' in config
 
 API = "https://api.github.com/"
 UPSTREAM_PULLS = API + ("repos/%s/web-platform-tests/pulls" % config['upstream_org'])
@@ -258,11 +259,9 @@ def webhook():
     return ('', 204)
 
 
-def main(port=None):
-    app.run(port=port)
+def main():
+    app.run(port=config['port'])
 
 
 if __name__ == "__main__":
-    import sys
-    port = sys.argv[1] if len(sys.argv) > 1 else None
-    main(port)
+    main()

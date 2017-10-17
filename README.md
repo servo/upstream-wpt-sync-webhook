@@ -12,6 +12,7 @@ To operate, a `config.json` file is required that looks like this:
     "wpt_path": "relative/path/to/web-platform-tests/clone",
     "upstream_org": "w3c",
     "servo_org": "servo",
+    "port": 5000,
 }
 ```
 
