@@ -57,9 +57,10 @@ def upstream(servo_pr_number, commits):
         PATCH_FILE = 'tmp.patch'
         STRIP_COUNT = UPSTREAMABLE_PATH.count('/') + 1
 
-        # Ensure WPT clone is up to date.
+        # Ensure shallow WPT clone is up to date.
         git(["checkout", "master"], cwd=config['wpt_path'])
-        git(["pull", "origin", "master"], cwd=config['wpt_path'])
+        git(["fetch", "origin", "master", "--depth", "1"], cwd=config['wpt_path'])
+        git(["reset", "--hard", "origin/master"], cwd=config['wpt_path'])
 
         # Create a new branch with a unique name that is consistent between updates of the same PR
         git(["checkout", "-b", BRANCH_NAME], cwd=config['wpt_path'])
