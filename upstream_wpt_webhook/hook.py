@@ -26,7 +26,7 @@ with open('config.json') as f:
 
 API = "https://api.github.com/"
 UPSTREAM_PULLS = API + ("repos/%s/web-platform-tests/pulls" % config['upstream_org'])
-UPSTREAMABLE_PATH = 'tests/wpt/web-platform-tests'
+UPSTREAMABLE_PATH = 'tests/wpt/web-platform-tests/'
 NO_SYNC_SIGNAL = '[no-wpt-sync]'
 
 def authenticated(method, url, json=None):
@@ -39,7 +39,7 @@ def authenticated(method, url, json=None):
     }
     print('fetching %s' % url)
     response = s.request(method, url, json=json)
-    if response.status_code / 100 != 2:
+    if int(response.status_code / 100) != 2:
         raise ValueError('got unexpected %d response: %s' % (response.status_code, response.text))
     return response
 
@@ -65,14 +65,27 @@ def upstream(servo_pr_number, commits):
         # Create a new branch with a unique name that is consistent between updates of the same PR
         git(["checkout", "-b", BRANCH_NAME], cwd=config['wpt_path'])
 
+        patch_path = os.path.join(config['wpt_path'], PATCH_FILE)
+
         for commit in commits:
             # Export the current diff to a file
-            with open(os.path.join(config['wpt_path'], PATCH_FILE), 'w') as f:
+            with open(patch_path, 'w') as f:
                 f.write(commit['diff'])
 
-            # Apply the exported commit
-            git(["apply", PATCH_FILE, "--include", UPSTREAMABLE_PATH, "-p", str(STRIP_COUNT)],
-                cwd=config['wpt_path'])
+            # Remove all non-WPT changes from the diff.
+            filtered = subprocess.check_output(["filterdiff",
+                                                "-p", "1",
+                                                "-i", UPSTREAMABLE_PATH + "*",
+                                                PATCH_FILE],
+                                               cwd=config['wpt_path'])
+            with open(patch_path, 'w') as f:
+                f.write(filtered.decode("utf-8"))
+
+            # Apply the filtered changes
+            git(["apply", PATCH_FILE, "-p", str(STRIP_COUNT)], cwd=config['wpt_path'])
+
+            # Ensure the patch file is not added with the other changes.
+            os.remove(patch_path)
 
             # Commit the changes
             git(["add", "--all"], cwd=config['wpt_path'])
@@ -121,8 +134,8 @@ def merge_upstream_pr(upstream):
 
 def modify_upstream_pr_labels(method, labels, pr_number):
     authenticated(method,
-                  API + ('repos/%s/web-platform-tests/pull/%d/labels' %
-                         (config['upstream_org'], result["id"])),
+                  API + ('repos/%s/web-platform-tests/issues/%s/labels' %
+                         (config['upstream_org'], pr_number)),
                   json=labels)
 
 
@@ -138,9 +151,9 @@ def open_upstream_pr(pr_number, title, source_org, branch, body):
                       UPSTREAM_PULLS,
                       json=data)
     result = r.json()
-    pr_db[pr_number] = result["id"]
+    pr_db[pr_number] = result["number"]
     pr_url = result["html_url"]
-    modify_upstream_pr_labels('POST', ['servo-export', 'do not merge yet'], pr_number)
+    modify_upstream_pr_labels('POST', ['servo-export', 'do not merge yet'], pr_db[pr_number])
     return pr_url
 
 
@@ -253,10 +266,10 @@ def index():
 
 @app.route("/hook", methods=["POST"])
 def webhook():
-    payload = request.args.get('payload', "{}")
-    process_json_payload(payload)
+    payload = request.form.get('payload', '{}')
+    process_json_payload(json.loads(payload))
     with open('pr_map.json', 'w') as f:
-        f.write(json.dumps(pr_map))
+        f.write(json.dumps(pr_db))
     return ('', 204)
 
 
