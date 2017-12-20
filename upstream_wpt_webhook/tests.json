@@ -1,0 +1,27 @@
+[
+    {
+        "name": "open new upstreamable PR",
+        "payload": "new_pr.json",
+        "db": {},
+        "expected": [
+            "FetchUpstreamableStep",
+            "UpstreamStep",
+            "OpenUpstreamStep",
+            "CommentStep"
+        ]
+    },
+    {
+        "name": "close non-upstreamable PR",
+        "payload": "close_pr.json",
+        "db": {},
+        "expected": []
+    },
+    {
+        "name": "close upstreamable PR",
+        "payload": "close_pr.json",
+        "db": {"18746": "http://foo.bar"},
+        "expected": [
+            "ChangeUpstreamStep"
+        ]
+    }
+]

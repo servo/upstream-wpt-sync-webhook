@@ -1,0 +1,12 @@
+diff --git a/tests/wpt/web-platform-tests/fetch/api/redirect/redirect-location.html b/tests/wpt/web-platform-tests/fetch/api/redirect/redirect-location.html
+index ac35dea54c47..135ad21d15ab 100644
+--- a/tests/wpt/web-platform-tests/fetch/api/redirect/redirect-location.html
++++ b/tests/wpt/web-platform-tests/fetch/api/redirect/redirect-location.html
+@@ -12,4 +12,5 @@
+     <script src="../resources/utils.js"></script>
+     <script src="redirect-location.js"></script>
+   </body>
+-</html>
+\ No newline at end of file
++</html>
++test commit
