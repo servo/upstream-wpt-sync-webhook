@@ -22,12 +22,16 @@ for test in tests:
     hook.pr_db = test['db']
 
     print(test['name'] + ':'),
-    steps = map(lambda x: x.name, process_json_payload(payload, partial(get_pr_diff, test)))
-    if steps == test['expected']:
+    executed = []
+    steps = process_json_payload(payload, partial(get_pr_diff, test))
+    for step in steps:
+        executed += [step.name]
+        step.run(True)
+    if executed == test['expected']:
         print 'passed'
     else:
         print
-        print steps
+        print executed
         print 'vs'
         print test['expected']
-        assert(steps == test['expected'])
+        assert(executed == test['expected'])

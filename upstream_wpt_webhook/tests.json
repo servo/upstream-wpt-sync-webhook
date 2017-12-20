@@ -13,7 +13,7 @@
     {
         "name": "open existing upstreamable PR",
         "payload": "new_pr.json",
-        "db": {"18746": "http://foo.bar"},
+        "db": {"18746": "1"},
         "expected": [
             "FetchUpstreamableStep",
             "UpstreamStep",
@@ -24,7 +24,7 @@
         "name": "open existing non-upstreamable PR",
         "payload": "new_pr.json",
         "diff": "non-wpt.diff",
-        "db": {"18746": "http://foo.bar"},
+        "db": {"18746": "1"},
         "expected": [
             "ChangeUpstreamStep"
         ]
@@ -38,7 +38,7 @@
     {
         "name": "close upstreamable PR",
         "payload": "close_pr.json",
-        "db": {"18746": "http://foo.bar"},
+        "db": {"18746": "1"},
         "expected": [
             "ChangeUpstreamStep"
         ]

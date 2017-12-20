@@ -36,6 +36,9 @@ class Step:
     def provides(self):
         return {}
 
+    def run(self, dry_run):
+        pass
+
 
 class AsyncValue:
     _value = None
@@ -44,7 +47,7 @@ class AsyncValue:
         self._value = value
 
     def value(self):
-        assert(self._value)
+        assert(self._value != None)
         return self._value
 
 
@@ -79,8 +82,8 @@ class UpstreamStep(Step):
         self.branch = AsyncValue()
         return {'branch': self.branch}
 
-    def run(self):
-        branch = _upstream(self.servo_pr_number, self.commits.value())
+    def run(self, dry_run):
+        branch = _upstream(self.servo_pr_number, self.commits.value(), dry_run)
         self.branch.resolve(branch)
 
 
@@ -89,8 +92,10 @@ def upstream(servo_pr_number, commits, steps):
     steps += [step]
     return step.provides()['branch']
 
-def _upstream(servo_pr_number, commits):
+def _upstream(servo_pr_number, commits, dry_run):
     BRANCH_NAME = "servo_export_%s" % servo_pr_number
+    if dry_run:
+        return BRANCH_NAME
 
     def upstream_inner(commits):
         PATCH_FILE = 'tmp.patch'
@@ -158,14 +163,17 @@ class ChangeUpstreamStep(Step):
         self.upstream = upstream
         self.state = state
 
-    def run(self):
-        self._change_upstream_pr(self.upstream, self.state)
+    def run(self, dry_run):
+        _change_upstream_pr(self.upstream, self.state, dry_run)
 
 
 def change_upstream_pr(upstream, state, steps):
     steps += [ChangeUpstreamStep(upstream, state)]
 
-def _change_upstream_pr(upstream, state):
+def _change_upstream_pr(upstream, state, dry_run):
+    if dry_run:
+        return
+
     data = {
         'state': state
     }
@@ -179,14 +187,17 @@ class MergeUpstreamStep(Step):
         Step.__init__(self, 'MergeUpstreamStep')
         self.upstream = upstream
 
-    def run(self):
-        _merge_upstream_pr(self.upstream)
+    def run(self, dry_run):
+        _merge_upstream_pr(self.upstream, dry_run)
 
 
 def merge_upstream_pr(upstream, steps):
     steps += [MergeUpstreamStep(upstream)]
 
-def _merge_upstream_pr(upstream):
+def _merge_upstream_pr(upstream, dry_run):
+    if dry_run:
+        return
+
     modify_upstream_pr_labels('DELETE', ['do not merge yet'], upstream)
     data = {
         'merge_method': 'merge',
@@ -216,12 +227,13 @@ class OpenUpstreamStep(Step):
         self.new_pr_url = AsyncValue()
         return {'pr_url': self.new_pr_url}
 
-    def run(self):
+    def run(self, dry_run):
         pr_url = _open_upstream_pr(self.pr_number,
                                    self.title,
                                    self.source_org,
                                    self.branch.value(),
-                                   self.body)
+                                   self.body,
+                                   dry_run)
         self.new_pr_url.resolve(pr_url)
 
 
@@ -230,7 +242,10 @@ def open_upstream_pr(pr_number, title, source_org, branch, body, steps):
     steps += [step]
     return step.provides()['pr_url']
 
-def _open_upstream_pr(pr_number, title, source_org, branch, body):
+def _open_upstream_pr(pr_number, title, source_org, branch, body, dry_run):
+    if dry_run:
+        return 'http://test.url'
+
     data = {
         'title': title,
         'head': (config['username'] + ':' + branch) if source_org != config['upstream_org'] else branch,
@@ -254,15 +269,18 @@ class CommentStep(Step):
         self.pr_number = pr_number
         self.upstream_url = upstream_url
 
-    def run(self):
-        return comment_on_pr(self.pr_number, self.upstream_url.value())
+    def run(self, dry_run):
+        _comment_on_pr(self.pr_number, self.upstream_url.value(), dry_run)
 
 
 def comment_on_pr(pr_number, upstream_url, steps):
     step = CommentStep(pr_number, upstream_url)
     steps += [step]
 
-def _comment_on_pr(pr_number, upstream_url):
+def _comment_on_pr(pr_number, upstream_url, dry_run):
+    if dry_run:
+        return
+
     data = {
         'body': 'Upstream web-platform-test changes at %s.' % upstream_url,
     }
@@ -291,8 +309,8 @@ class FetchUpstreamableStep(Step):
         self.commits = AsyncValue()
         return {'commits': self.commits}
 
-    def run(self):
-        commits = _fetch_upstreamable_commits(sef.pull_request)
+    def run(self, dry_run):
+        commits = _fetch_upstreamable_commits(self.pull_request, dry_run)
         self.commits.resolve(commits)
 
 
@@ -301,7 +319,10 @@ def fetch_upstreamable_commits(pull_request, steps):
     steps += [step]
     return step.provides()['commits']
 
-def _fetch_upstreamable_commits(pull_request):
+def _fetch_upstreamable_commits(pull_request, dry_run):
+    if dry_run:
+        return []
+
     r = authenticated('GET', pull_request["commits_url"])
     commit_data = r.json()
     filtered_commits = []
@@ -392,7 +413,9 @@ def index():
 @app.route("/hook", methods=["POST"])
 def webhook():
     payload = request.form.get('payload', '{}')
-    process_json_payload(json.loads(payload), get_pr_diff)
+    steps = process_json_payload(json.loads(payload), get_pr_diff)
+    for step in steps:
+        step.run(False)
     with open('pr_map.json', 'w') as f:
         f.write(json.dumps(pr_db))
     return ('', 204)
