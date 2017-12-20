@@ -1,0 +1,18 @@
+diff --git a/etc/ci/performance/runner.py b/etc/ci/performance/runner.py
+index 7b895f11ca08..7984392e7391 100644
+--- a/etc/ci/performance/runner.py
++++ b/etc/ci/performance/runner.py
+@@ -281,10 +281,12 @@ def save_result_csv(results, filename, manifest, expected_runs, base):
+         'unloadEventStart',
+     ]
+ 
++    successes = [r for r in results if r['domComplete'] != -1]
++
+     with open(filename, 'w', encoding='utf-8') as csvfile:
+         writer = csv.DictWriter(csvfile, fieldnames)
+         writer.writeheader()
+-        writer.writerows(results)
++        writer.writerows(successes)
+ 
+ 
+ def format_result_summary(results):
