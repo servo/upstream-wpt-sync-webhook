@@ -1,11 +1,14 @@
 #!/usr/bin/env python
 
+import copy
 from flask import Flask, request, jsonify, render_template, make_response, abort
 import json
 import os
 import requests
 import sys
 import subprocess
+import time
+import traceback
 
 app = Flask(__name__)
 pr_db = {}
@@ -28,6 +31,7 @@ API = "https://api.github.com/"
 UPSTREAM_PULLS = API + ("repos/%s/web-platform-tests/pulls" % config['upstream_org'])
 UPSTREAMABLE_PATH = 'tests/wpt/web-platform-tests/'
 NO_SYNC_SIGNAL = '[no-wpt-sync]'
+ERROR_BODY = "Error syncing changes upstream. Logs saved in %s."
 
 class Step:
     def __init__(self, name):
@@ -277,16 +281,21 @@ def comment_on_pr(pr_number, upstream_url, steps):
     step = CommentStep(pr_number, upstream_url)
     steps += [step]
 
-def _comment_on_pr(pr_number, upstream_url, dry_run):
-    if dry_run:
-        return
 
+def _do_comment_on_pr(pr_number, body):
     data = {
-        'body': 'Upstream web-platform-test changes at %s.' % upstream_url,
+        'body': body,
     }
     return authenticated('POST',
                          API + ('repos/%s/servo/issues/%s/comments' % (config['servo_org'], pr_number)),
                          json=data)
+
+
+def _comment_on_pr(pr_number, upstream_url, dry_run):
+    if dry_run:
+        return
+
+    return _do_comment_on_pr(pr_number, 'Upstream web-platform-test changes at %s.' % upstream_url)
 
 
 def patch_contains_upstreamable_changes(patch_contents):
@@ -410,12 +419,44 @@ def index():
     return "Hi!"
 
 
+def save_snapshot(payload, exception_info, pr_db, diff_provider):
+    name = 'error-snapshot-%s' % int(round(time.time() * 1000))
+    os.mkdir(name)
+    with open(os.path.join(name, 'payload.json'), 'w') as f:
+        f.write(json.dumps(payload, indent=2))
+    with open(os.path.join(name, 'pr_db.json'), 'w') as f:
+        f.write(json.dumps(pr_db, indent=2))
+    with open(os.path.join(name, 'exception'), 'w') as f:
+        f.write(''.join(exception_info))
+    with open(os.path.join(name, 'pr.diff'), 'w') as f:
+        f.write(diff_provider(payload['pull_request']))
+    return name
+
+
+def process_and_run_steps(payload, provider, dry_run, step_callback):
+    orig_pr_db = copy.deepcopy(pr_db)
+    try:
+        steps = process_json_payload(payload, provider)
+        for step in steps:
+            if step_callback:
+                step_callback(step)
+            step.run(dry_run)
+        return True
+    except:
+        exc_type, exc_value, exc_traceback = sys.exc_info()
+        info = traceback.format_exception(exc_type, exc_value, exc_traceback)
+        dir_name = save_snapshot(payload, info, orig_pr_db, provider)
+        return False
+
+
 @app.route("/hook", methods=["POST"])
 def webhook():
     payload = request.form.get('payload', '{}')
-    steps = process_json_payload(json.loads(payload), get_pr_diff)
-    for step in steps:
-        step.run(False)
+    payload = json.loads(payload)
+    if not process_and_run_steps(payload, get_pr_diff, False, None):
+        _do_comment_on_pr(payload["pull_request"]["number"], ERROR_BODY % dir_name)
+        return ('', 503)
+
     with open('pr_map.json', 'w') as f:
         f.write(json.dumps(pr_db))
     return ('', 204)

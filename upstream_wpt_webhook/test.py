@@ -1,6 +1,6 @@
 from functools import partial
 import hook
-from hook import process_json_payload
+from hook import process_and_run_steps
 import os
 import json
 import sys
@@ -23,10 +23,10 @@ for test in tests:
 
     print(test['name'] + ':'),
     executed = []
-    steps = process_json_payload(payload, partial(get_pr_diff, test))
-    for step in steps:
+    def callback(step):
+        global executed
         executed += [step.name]
-        step.run(True)
+    process_and_run_steps(payload, partial(get_pr_diff, test), True, callback)
     if executed == test['expected']:
         print 'passed'
     else:
