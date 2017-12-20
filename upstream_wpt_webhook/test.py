@@ -1,11 +1,16 @@
+from functools import partial
 import hook
 from hook import process_json_payload
 import os
 import json
 import sys
 
-def get_pr_diff(pull_request):
-    with open(os.path.join('tests', str(pull_request['number']) + '.diff')) as f:
+def get_pr_diff(test, pull_request):
+    if 'diff' in test:
+        diff_file = test['diff']
+    else:
+        diff_file = str(pull_request['number']) + '.diff'
+    with open(os.path.join('tests', diff_file)) as f:
         return f.read()
 
 with open('tests.json') as f:
@@ -17,8 +22,12 @@ for test in tests:
     hook.pr_db = test['db']
 
     print(test['name'] + ':'),
-    steps = map(lambda x: x.name, process_json_payload(payload, get_pr_diff))
+    steps = map(lambda x: x.name, process_json_payload(payload, partial(get_pr_diff, test)))
     if steps == test['expected']:
         print 'passed'
     else:
+        print
+        print steps
+        print 'vs'
+        print test['expected']
         assert(steps == test['expected'])
