@@ -11,13 +11,20 @@
         ]
     },
     {
+        "name": "open new upstreamable PR, no-sync",
+        "payload": "new_pr_no_sync.json",
+        "db": {},
+        "expected": []
+    },
+    {
         "name": "open existing upstreamable PR",
         "payload": "new_pr.json",
         "db": {"18746": "1"},
         "expected": [
             "FetchUpstreamableStep",
             "UpstreamStep",
-            "ChangeUpstreamStep"
+            "ChangeUpstreamStep",
+            "CommentStep"
         ]
     },
     {
@@ -26,7 +33,8 @@
         "diff": "non-wpt.diff",
         "db": {"18746": "1"},
         "expected": [
-            "ChangeUpstreamStep"
+            "ChangeUpstreamStep",
+            "CommentStep"
         ]
     },
     {

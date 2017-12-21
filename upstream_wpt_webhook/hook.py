@@ -274,7 +274,8 @@ class CommentStep(Step):
         self.upstream_url = upstream_url
 
     def run(self, dry_run):
-        _comment_on_pr(self.pr_number, self.upstream_url.value(), dry_run)
+        upstream_url = self.upstream_url.value() if isinstance(self.upstream_url, AsyncValue) else self.upstream_url
+        _comment_on_pr(self.pr_number, upstream_url, dry_run)
 
 
 def comment_on_pr(pr_number, upstream_url, steps):
@@ -295,7 +296,7 @@ def _comment_on_pr(pr_number, upstream_url, dry_run):
     if dry_run:
         return
 
-    return _do_comment_on_pr(pr_number, 'Upstream web-platform-test changes at %s.' % upstream_url)
+    return _do_comment_on_pr(pr_number, 'Completed upstream sync of web-platform-test changes at %s.' % upstream_url)
 
 
 def patch_contains_upstreamable_changes(patch_contents):
@@ -371,6 +372,7 @@ def process_new_pr_contents(pull_request, pr_diff, steps):
         else:
             # Close the upstream PR, since would contain no changes otherwise.
             change_upstream_pr(pr_db[pr_number], 'closed', steps)
+        comment_on_pr(pr_number, UPSTREAM_PULLS + '/' + str(pr_db[pr_number]), steps)
     elif patch_contains_upstreamable_changes(pr_diff):
         # Retrieve the set of commits that need to be transplanted.
         commits = fetch_upstreamable_commits(pull_request, steps)
