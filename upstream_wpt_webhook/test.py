@@ -77,8 +77,13 @@ for (i, test) in enumerate(tests):
         payload = f.read()
 
     # Wait for server to finish setting up before continuing
-    while requests.get('http://localhost:' + str(this_config['port']) + '/').status_code != 200:
-        time.sleep(0.5)
+    while True:
+        try:
+            r = requests.get('http://localhost:' + str(this_config['port']) + '/')
+            assert(r.status_code == 200)
+            break
+        except:
+            time.sleep(0.5)
 
     r = requests.post('http://localhost:' + str(this_config['port']) + '/test', data={'payload': payload})
     if r.status_code != 204:
