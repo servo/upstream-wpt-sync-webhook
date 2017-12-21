@@ -47,12 +47,12 @@ for test in tests:
                           step_callback=callback,
                           error_callback=error_callback)
     if executed == test['expected']:
-        print 'passed'
+        print('passed')
     else:
-        print
-        print executed
-        print 'vs'
-        print test['expected']
+        print()
+        print(executed)
+        print('vs')
+        print(test['expected'])
         assert(executed == test['expected'])
 
 class ServerThread(object):
