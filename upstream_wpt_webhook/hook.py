@@ -409,7 +409,7 @@ def process_json_payload(payload, diff_provider):
         return []
 
     steps = []
-    if payload['action'] in ['opened', 'synchronized']:
+    if payload['action'] in ['opened', 'synchronize']:
         process_new_pr_contents(pull_request, diff_provider(pull_request), steps)
     elif payload['action'] == 'closed':
         process_closed_pr(pull_request, steps)

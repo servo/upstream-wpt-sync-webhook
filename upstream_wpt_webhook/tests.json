@@ -57,5 +57,46 @@
         "expected": [
             "ChangeUpstreamStep"
         ]
+    },
+    {
+        "name": "synchronize upstreamable PR",
+        "payload": "synchronize.json",
+        "diff": "18746.diff",
+        "db": {"19612": "1"},
+        "expected": [
+            "FetchUpstreamableStep",
+            "UpstreamStep",
+            "ChangeUpstreamStep",
+            "CommentStep"
+        ]
+    },
+    {
+        "name": "synchronize newly non-upstreamable PR",
+        "payload": "synchronize.json",
+        "diff": "non-wpt.diff",
+        "db": {"19612": "1"},
+        "expected": [
+            "ChangeUpstreamStep",
+            "CommentStep"
+        ]
+    },
+    {
+        "name": "synchronize newly upstreamable PR",
+        "payload": "synchronize.json",
+        "diff": "18746.diff",
+        "db": {},
+        "expected": [
+            "FetchUpstreamableStep",
+            "UpstreamStep",
+            "OpenUpstreamStep",
+            "CommentStep"
+        ]
+    },
+    {
+        "name": "synchronize non-upstreamable PR",
+        "payload": "synchronize.json",
+        "diff": "non-wpt.diff",
+        "db": {},
+        "expected": []
     }
 ]
