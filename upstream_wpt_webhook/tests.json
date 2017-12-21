@@ -98,5 +98,20 @@
         "diff": "non-wpt.diff",
         "db": {},
         "expected": []
+    },
+    {
+        "name": "merge upstreamed PR",
+        "payload": "merged.json",
+        "diff": "18746.diff",
+        "db": {"19620": "1"},
+        "expected": [
+            "MergeUpstreamStep"
+        ]
+    },
+    {
+        "name": "merge non-upstreamed PR",
+        "payload": "merged.json",
+        "db": {},
+        "expected": []
     }
 ]
