@@ -17,6 +17,13 @@
         "expected": []
     },
     {
+        "name": "open new non-upstreamable PR, no-sync",
+        "payload": "new_pr_no_sync.json",
+        "diff": "non-wpt.diff",
+        "db": {},
+        "expected": []
+    },
+    {
         "name": "open existing upstreamable PR",
         "payload": "new_pr.json",
         "db": {"18746": "1"},
