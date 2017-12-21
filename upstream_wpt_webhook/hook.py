@@ -446,6 +446,7 @@ def process_and_run_steps(payload, provider, dry_run, step_callback):
         exc_type, exc_value, exc_traceback = sys.exc_info()
         info = traceback.format_exception(exc_type, exc_value, exc_traceback)
         dir_name = save_snapshot(payload, info, orig_pr_db, provider)
+        print('saved error snapshot: %s' % dir_name)
         return False
 
 
