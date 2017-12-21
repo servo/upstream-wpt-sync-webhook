@@ -425,7 +425,7 @@ def save_snapshot(payload, exception_info, pr_db, diff_provider):
     return name
 
 
-def process_and_run_steps(payload, provider, dry_run, step_callback):
+def process_and_run_steps(payload, provider, dry_run, step_callback=None, error_callback=None):
     orig_pr_db = copy.deepcopy(pr_db)
     try:
         steps = process_json_payload(payload, provider)
@@ -438,5 +438,6 @@ def process_and_run_steps(payload, provider, dry_run, step_callback):
         exc_type, exc_value, exc_traceback = sys.exc_info()
         info = traceback.format_exception(exc_type, exc_value, exc_traceback)
         dir_name = save_snapshot(payload, info, orig_pr_db, provider)
-        print('saved error snapshot: %s' % dir_name)
+        if error_callback:
+            error_callback(dir_name)
         return False

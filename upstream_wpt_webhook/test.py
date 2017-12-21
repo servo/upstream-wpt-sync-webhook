@@ -26,7 +26,13 @@ for test in tests:
     def callback(step):
         global executed
         executed += [step.name]
-    process_and_run_steps(payload, partial(get_pr_diff, test), True, callback)
+    def error_callback(dir_name):
+        print('saved error snapshot: %s' % dir_name)
+    process_and_run_steps(payload,
+                          partial(get_pr_diff, test),
+                          True,
+                          step_callback=callback,
+                          error_callback=error_callback)
     if executed == test['expected']:
         print 'passed'
     else:
