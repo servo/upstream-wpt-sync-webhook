@@ -8,6 +8,7 @@ import sync
 from sync import process_and_run_steps
 import sys
 import threading
+import time
 
 def get_pr_diff(test, pull_request):
     if 'diff' in test:
@@ -74,6 +75,10 @@ for (i, test) in enumerate(tests):
 
     with open(os.path.join('tests', test['payload'])) as f:
         payload = f.read()
+
+    # Wait for server to finish setting up before continuing
+    while requests.get('http://localhost:' + str(this_config['port']) + '/').status_code != 200:
+        time.sleep(0.5)
 
     r = requests.post('http://localhost:' + str(this_config['port']) + '/test', data={'payload': payload})
     if r.status_code != 204:
