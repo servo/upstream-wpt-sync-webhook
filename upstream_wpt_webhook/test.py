@@ -1,3 +1,4 @@
+import copy
 from functools import partial
 import hook
 import json
@@ -64,19 +65,21 @@ class ServerThread(object):
 
 print('testing server hook with /test')
 
-for test in tests:
+for (i, test) in enumerate(tests):
     print(test['name'] + ':'),
 
-    server = ServerThread(config)
+    this_config = copy.deepcopy(config)
+    this_config['port'] += i
+    server = ServerThread(this_config)
 
     with open(os.path.join('tests', test['payload'])) as f:
         payload = f.read()
 
-    r = requests.post('http://localhost:' + str(config['port']) + '/test', data={'payload': payload})
+    r = requests.post('http://localhost:' + str(this_config['port']) + '/test', data={'payload': payload})
     if r.status_code != 204:
         print(r.status_code)
     assert(r.status_code == 204)
-    r = requests.post('http://localhost:' + str(config['port']) + '/shutdown')
+    r = requests.post('http://localhost:' + str(this_config['port']) + '/shutdown')
     if r.status_code != 204:
         print(r.status_code)
     assert(r.status_code == 204)
