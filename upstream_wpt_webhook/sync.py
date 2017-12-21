@@ -7,26 +7,12 @@ import subprocess
 import time
 import traceback
 
-pr_db = {}
-try:
-    with open('pr_map.json') as f:
-        pr_db = json.loads(f.read())
-except:
-    pass
-
-with open('config.json') as f:
-    config = json.loads(f.read())
-    assert 'token' in config
-    assert 'username' in config
-    assert 'wpt_path' in config
-    assert 'upstream_org' in config
-    assert 'servo_org' in config
-    assert 'port' in config
-
 API = "https://api.github.com/"
-UPSTREAM_PULLS = API + ("repos/%s/web-platform-tests/pulls" % config['upstream_org'])
 UPSTREAMABLE_PATH = 'tests/wpt/web-platform-tests/'
 NO_SYNC_SIGNAL = '[no-wpt-sync]'
+
+def upstream_pulls(config):
+    return API + ("repos/%s/web-platform-tests/pulls" % config['upstream_org'])
 
 class Step:
     def __init__(self, name):
@@ -50,7 +36,7 @@ class AsyncValue:
         return self._value
 
 
-def authenticated(method, url, json=None):
+def authenticated(config, method, url, json=None):
     s = requests.Session()
     if not method:
         method = 'GET'
@@ -81,8 +67,8 @@ class UpstreamStep(Step):
         self.branch = AsyncValue()
         return {'branch': self.branch}
 
-    def run(self, dry_run):
-        branch = _upstream(self.servo_pr_number, self.commits.value(), dry_run)
+    def run(self, config, dry_run):
+        branch = _upstream(config, self.servo_pr_number, self.commits.value(), dry_run)
         self.branch.resolve(branch)
 
 
@@ -91,12 +77,12 @@ def upstream(servo_pr_number, commits, steps):
     steps += [step]
     return step.provides()['branch']
 
-def _upstream(servo_pr_number, commits, dry_run):
+def _upstream(config, servo_pr_number, commits, dry_run):
     BRANCH_NAME = "servo_export_%s" % servo_pr_number
     if dry_run:
         return BRANCH_NAME
 
-    def upstream_inner(commits):
+    def upstream_inner(config, commits):
         PATCH_FILE = 'tmp.patch'
         STRIP_COUNT = UPSTREAMABLE_PATH.count('/') + 1
 
@@ -162,22 +148,23 @@ class ChangeUpstreamStep(Step):
         self.upstream = upstream
         self.state = state
 
-    def run(self, dry_run):
-        _change_upstream_pr(self.upstream, self.state, dry_run)
+    def run(self, config, dry_run):
+        _change_upstream_pr(config, self.upstream, self.state, dry_run)
 
 
 def change_upstream_pr(upstream, state, steps):
     steps += [ChangeUpstreamStep(upstream, state)]
 
-def _change_upstream_pr(upstream, state, dry_run):
+def _change_upstream_pr(config, upstream, state, dry_run):
     if dry_run:
         return
 
     data = {
         'state': state
     }
-    return authenticated('PATCH',
-                         UPSTREAM_PULLS + '/' + str(upstream),
+    return authenticated(config,
+                         'PATCH',
+                         upstream_pulls(config) + '/' + str(upstream),
                          json=data)
 
 
@@ -186,36 +173,39 @@ class MergeUpstreamStep(Step):
         Step.__init__(self, 'MergeUpstreamStep')
         self.upstream = upstream
 
-    def run(self, dry_run):
-        _merge_upstream_pr(self.upstream, dry_run)
+    def run(self, config, dry_run):
+        _merge_upstream_pr(config, self.upstream, dry_run)
 
 
 def merge_upstream_pr(upstream, steps):
     steps += [MergeUpstreamStep(upstream)]
 
-def _merge_upstream_pr(upstream, dry_run):
+def _merge_upstream_pr(config, upstream, dry_run):
     if dry_run:
         return
 
-    modify_upstream_pr_labels('DELETE', ['do not merge yet'], upstream)
+    modify_upstream_pr_labels(config, 'DELETE', ['do not merge yet'], upstream)
     data = {
         'merge_method': 'merge',
     }
-    return authenticated('PUT',
-                         UPSTREAM_PULLS + '/' + str(upstream) + '/merge',
+    return authenticated(config,
+                         'PUT',
+                         upstream_pulls(config) + '/' + str(upstream) + '/merge',
                          json=data)
 
 
-def modify_upstream_pr_labels(method, labels, pr_number):
-    authenticated(method,
+def modify_upstream_pr_labels(config, method, labels, pr_number):
+    authenticated(config,
+                  method,
                   API + ('repos/%s/web-platform-tests/issues/%s/labels' %
                          (config['upstream_org'], pr_number)),
                   json=labels)
 
 
 class OpenUpstreamStep(Step):
-    def __init__(self, pr_number, title, source_org, branch, body):
+    def __init__(self, pr_db, pr_number, title, source_org, branch, body):
         Step.__init__(self, 'OpenUpstreamStep')
+        self.pr_db = pr_db
         self.pr_number = pr_number
         self.title = title
         self.source_org = source_org
@@ -226,8 +216,10 @@ class OpenUpstreamStep(Step):
         self.new_pr_url = AsyncValue()
         return {'pr_url': self.new_pr_url}
 
-    def run(self, dry_run):
-        pr_url = _open_upstream_pr(self.pr_number,
+    def run(self, config, dry_run):
+        pr_url = _open_upstream_pr(config,
+                                   self.pr_db,
+                                   self.pr_number,
                                    self.title,
                                    self.source_org,
                                    self.branch.value(),
@@ -236,12 +228,12 @@ class OpenUpstreamStep(Step):
         self.new_pr_url.resolve(pr_url)
 
 
-def open_upstream_pr(pr_number, title, source_org, branch, body, steps):
-    step = OpenUpstreamStep(pr_number, title, source_org, branch, body)
+def open_upstream_pr(pr_db, pr_number, title, source_org, branch, body, steps):
+    step = OpenUpstreamStep(pr_db, pr_number, title, source_org, branch, body)
     steps += [step]
     return step.provides()['pr_url']
 
-def _open_upstream_pr(pr_number, title, source_org, branch, body, dry_run):
+def _open_upstream_pr(config, pr_db, pr_number, title, source_org, branch, body, dry_run):
     if dry_run:
         return 'http://test.url'
 
@@ -252,13 +244,14 @@ def _open_upstream_pr(pr_number, title, source_org, branch, body, dry_run):
         'body': body,
         'maintainer_can_modify': False,
     }
-    r = authenticated('POST',
-                      UPSTREAM_PULLS,
+    r = authenticated(config,
+                      'POST',
+                      upstream_pulls(config),
                       json=data)
     result = r.json()
     pr_db[pr_number] = result["number"]
     pr_url = result["html_url"]
-    modify_upstream_pr_labels('POST', ['servo-export', 'do not merge yet'], pr_db[pr_number])
+    modify_upstream_pr_labels(config, 'POST', ['servo-export', 'do not merge yet'], pr_db[pr_number])
     return pr_url
 
 
@@ -268,9 +261,9 @@ class CommentStep(Step):
         self.pr_number = pr_number
         self.upstream_url = upstream_url
 
-    def run(self, dry_run):
+    def run(self, config, dry_run):
         upstream_url = self.upstream_url.value() if isinstance(self.upstream_url, AsyncValue) else self.upstream_url
-        _comment_on_pr(self.pr_number, upstream_url, dry_run)
+        _comment_on_pr(config, self.pr_number, upstream_url, dry_run)
 
 
 def comment_on_pr(pr_number, upstream_url, steps):
@@ -278,20 +271,22 @@ def comment_on_pr(pr_number, upstream_url, steps):
     steps += [step]
 
 
-def _do_comment_on_pr(pr_number, body):
+def _do_comment_on_pr(config, pr_number, body):
     data = {
         'body': body,
     }
-    return authenticated('POST',
+    return authenticated(config,
+                         'POST',
                          API + ('repos/%s/servo/issues/%s/comments' % (config['servo_org'], pr_number)),
                          json=data)
 
 
-def _comment_on_pr(pr_number, upstream_url, dry_run):
+def _comment_on_pr(config, pr_number, upstream_url, dry_run):
     if dry_run:
         return
 
-    return _do_comment_on_pr(pr_number, 'Completed upstream sync of web-platform-test changes at %s.' % upstream_url)
+    return _do_comment_on_pr(config, pr_number,
+                             'Completed upstream sync of web-platform-test changes at %s.' % upstream_url)
 
 
 def patch_contains_upstreamable_changes(patch_contents):
@@ -310,8 +305,8 @@ class FetchUpstreamableStep(Step):
         self.commits = AsyncValue()
         return {'commits': self.commits}
 
-    def run(self, dry_run):
-        commits = _fetch_upstreamable_commits(self.pull_request, dry_run)
+    def run(self, config, dry_run):
+        commits = _fetch_upstreamable_commits(config, self.pull_request, dry_run)
         self.commits.resolve(commits)
 
 
@@ -320,15 +315,15 @@ def fetch_upstreamable_commits(pull_request, steps):
     steps += [step]
     return step.provides()['commits']
 
-def _fetch_upstreamable_commits(pull_request, dry_run):
+def _fetch_upstreamable_commits(config, pull_request, dry_run):
     if dry_run:
         return []
 
-    r = authenticated('GET', pull_request["commits_url"])
+    r = authenticated(config, 'GET', pull_request["commits_url"])
     commit_data = r.json()
     filtered_commits = []
     for commit in commit_data:
-        r = authenticated('GET', commit['url'])
+        r = authenticated(config, 'GET', commit['url'])
         commit_body = r.json()
         for file in commit_body['files']:
             if UPSTREAMABLE_PATH in file['filename']:
@@ -348,7 +343,7 @@ def _fetch_upstreamable_commits(pull_request, dry_run):
 
 SERVO_PR_URL = "https://github.com/%s/servo/pulls/%s"
 
-def process_new_pr_contents(pull_request, pr_diff, steps):
+def process_new_pr_contents(config, pr_db, pull_request, pr_diff, steps):
     pr_number = str(pull_request['number'])
     # Is this updating an existing pull request?
     if pr_number in pr_db:
@@ -363,7 +358,7 @@ def process_new_pr_contents(pull_request, pr_diff, steps):
         else:
             # Close the upstream PR, since would contain no changes otherwise.
             change_upstream_pr(pr_db[pr_number], 'closed', steps)
-        comment_on_pr(pr_number, UPSTREAM_PULLS + '/' + str(pr_db[pr_number]), steps)
+        comment_on_pr(pr_number, upstream_pulls(config) + '/' + str(pr_db[pr_number]), steps)
     elif patch_contains_upstreamable_changes(pr_diff):
         # Retrieve the set of commits that need to be transplanted.
         commits = fetch_upstreamable_commits(pull_request, steps)
@@ -373,12 +368,12 @@ def process_new_pr_contents(pull_request, pr_diff, steps):
         #       and add it to the upstream body.
         body = "Reviewed in %s." % (SERVO_PR_URL % (config['servo_org'], pr_number))
         # Create a pull request against the upstream repository for the new branch.
-        upstream_url = open_upstream_pr(pr_number, pull_request['title'], config['username'], branch, body, steps)
+        upstream_url = open_upstream_pr(pr_db, pr_number, pull_request['title'], config['username'], branch, body, steps)
         # Leave a comment to the new pull request in the original pull request.
         comment_on_pr(pr_number, upstream_url, steps)
 
-    
-def process_closed_pr(pull_request, steps):
+
+def process_closed_pr(pr_db, pull_request, steps):
     pr_number = str(pull_request['number'])
     if not pr_number in pr_db:
         # If we don't recognize this PR, it never contained upstreamable changes.
@@ -394,16 +389,16 @@ def process_closed_pr(pull_request, steps):
         change_upstream_pr(pr_db[pr_number], 'closed', steps)
 
         
-def process_json_payload(payload, diff_provider):
+def process_json_payload(config, pr_db, payload, diff_provider):
     pull_request = payload['pull_request']
     if NO_SYNC_SIGNAL in pull_request['body']:
         return []
 
     steps = []
     if payload['action'] in ['opened', 'synchronize']:
-        process_new_pr_contents(pull_request, diff_provider(pull_request), steps)
+        process_new_pr_contents(config, pr_db, pull_request, diff_provider(pull_request), steps)
     elif payload['action'] == 'closed':
-        process_closed_pr(pull_request, steps)
+        process_closed_pr(pr_db, pull_request, steps)
     return steps
 
 
@@ -421,14 +416,15 @@ def save_snapshot(payload, exception_info, pr_db, diff_provider):
     return name
 
 
-def process_and_run_steps(payload, provider, dry_run, step_callback=None, error_callback=None):
+def process_and_run_steps(config, pr_db, payload, provider, dry_run,
+                          step_callback=None, error_callback=None):
     orig_pr_db = copy.deepcopy(pr_db)
     try:
-        steps = process_json_payload(payload, provider)
+        steps = process_json_payload(config, pr_db, payload, provider)
         for step in steps:
             if step_callback:
                 step_callback(step)
-            step.run(dry_run)
+            step.run(config, dry_run)
         return True
     except:
         exc_type, exc_value, exc_traceback = sys.exc_info()

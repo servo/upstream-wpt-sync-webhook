@@ -1,9 +1,12 @@
 from functools import partial
+import hook
+import json
+import os
+import requests
 import sync
 from sync import process_and_run_steps
-import os
-import json
 import sys
+import threading
 
 def get_pr_diff(test, pull_request):
     if 'diff' in test:
@@ -16,10 +19,16 @@ def get_pr_diff(test, pull_request):
 with open('tests.json') as f:
     tests = json.loads(f.read())
 
+config = {
+    'servo_org': 'servo',
+    'username': 'servo-wpt-sync',
+    'upstream_org': 'jdm',
+    'port': 5000,
+}
+
 for test in tests:
     with open(os.path.join('tests', test['payload'])) as f:
         payload = json.loads(f.read())
-    sync.pr_db = test['db']
 
     print(test['name'] + ':'),
     executed = []
@@ -28,7 +37,9 @@ for test in tests:
         executed += [step.name]
     def error_callback(dir_name):
         print('saved error snapshot: %s' % dir_name)
-    process_and_run_steps(payload,
+    process_and_run_steps(config,
+                          test['db'],
+                          payload,
                           partial(get_pr_diff, test),
                           True,
                           step_callback=callback,
@@ -41,3 +52,33 @@ for test in tests:
         print 'vs'
         print test['expected']
         assert(executed == test['expected'])
+
+class ServerThread(object):
+    def __init__(self, config):
+        thread = threading.Thread(target=self.run, args=(config,))
+        thread.daemon = True
+        thread.start()
+
+    def run(self, config):
+        hook.main(config, {})
+
+print('testing server hook with /test')
+
+for test in tests:
+    print(test['name'] + ':'),
+
+    server = ServerThread(config)
+
+    with open(os.path.join('tests', test['payload'])) as f:
+        payload = f.read()
+
+    r = requests.post('http://localhost:' + str(config['port']) + '/test', data={'payload': payload})
+    if r.status_code != 204:
+        print(r.status_code)
+    assert(r.status_code == 204)
+    r = requests.post('http://localhost:' + str(config['port']) + '/shutdown')
+    if r.status_code != 204:
+        print(r.status_code)
+    assert(r.status_code == 204)
+
+    print('passed')
