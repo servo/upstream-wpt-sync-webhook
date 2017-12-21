@@ -301,10 +301,6 @@ def patch_contains_upstreamable_changes(patch_contents):
     return False
 
 
-def get_pr_diff(pull_request):
-    return requests.get(pull_request["diff_url"]).text
-
-
 class FetchUpstreamableStep(Step):
     def __init__(self, pull_request):
         Step.__init__(self, 'FetchUpstreamableStep')
