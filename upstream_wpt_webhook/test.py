@@ -1,6 +1,6 @@
 from functools import partial
-import hook
-from hook import process_and_run_steps
+import sync
+from sync import process_and_run_steps
 import os
 import json
 import sys
@@ -19,7 +19,7 @@ with open('tests.json') as f:
 for test in tests:
     with open(os.path.join('tests', test['payload'])) as f:
         payload = json.loads(f.read())
-    hook.pr_db = test['db']
+    sync.pr_db = test['db']
 
     print(test['name'] + ':'),
     executed = []
