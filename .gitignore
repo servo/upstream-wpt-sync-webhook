@@ -1,1 +1,3 @@
 *.pyc
+upstream_wpt_webhook/config.json
+upstream_wpt_webhook/pr_map.json
