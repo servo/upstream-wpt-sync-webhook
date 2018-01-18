@@ -88,7 +88,7 @@ def upstream(servo_pr_number, commits, steps):
     steps += [step]
     return step.provides()['branch']
 
-def _upstream(config, servo_pr_number, commits, dry_run):
+def _upstream(config, servo_pr_number, commits, dry_run, pre_delete_callback=None):
     BRANCH_NAME = "servo_export_%s" % servo_pr_number
     if dry_run:
         return BRANCH_NAME
@@ -137,12 +137,16 @@ def _upstream(config, servo_pr_number, commits, dry_run):
             token=config['token'],
         )
 
-        # Push the branch upstream (forcing to overwrite any existing changes)
-        git(["push", "-f", remote_url, BRANCH_NAME], cwd=config['wpt_path'])
+        if not config.get('suppress_force_push', False):
+            # Push the branch upstream (forcing to overwrite any existing changes)
+            git(["push", "-f", remote_url, BRANCH_NAME], cwd=config['wpt_path'])
         return BRANCH_NAME
 
     try:
-        return upstream_inner(commits)
+        result = upstream_inner(config, commits)
+        if pre_delete_callback:
+            pre_delete_callback(git)
+        return result
     except Exception as e:
         raise e
     finally:

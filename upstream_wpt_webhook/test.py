@@ -5,11 +5,50 @@ import json
 import os
 import requests
 import sync
-from sync import process_and_run_steps, UPSTREAMABLE_PATH
+from sync import process_and_run_steps, UPSTREAMABLE_PATH, _upstream, git
 import sys
 from test_api_server import start_server
 import threading
 import time
+import tempfile
+
+base_wpt_dir = tempfile.mkdtemp()
+git(["clone", "--depth=1", "https://github.com/w3c/web-platform-tests.git"], cwd=base_wpt_dir)
+
+config = {
+    'servo_org': 'servo',
+    'username': 'servo-wpt-sync',
+    'upstream_org': 'jdm',
+    'port': 5000,
+    'token': '',
+    'api': 'http://localhost:9000',
+    'override_host': 'http://localhost:9000',
+    'suppress_force_push': True,
+    'wpt_path': os.path.join(base_wpt_dir, "web-platform-tests"),
+}
+
+def git_callback(test, git):
+    commits = git(["log", "--oneline", "-%d" % len(test['commits'])], cwd=config['wpt_path']).splitlines()
+    if any(map(lambda (actual, expected): expected['message'] not in actual,
+               zip(commits, test['commits']))):
+        print
+        print("Observed:")
+        print(commits)
+        print
+        print("Expected:")
+        print(map(lambda s: s['message'], test['commits']))
+        sys.exit(1)
+
+if len(sys.argv) == 1 or sys.argv[1] == "--git-test":
+    with open('git_tests.json') as f:
+        git_tests = json.loads(f.read())
+    for test in git_tests:
+        for commit in test['commits']:
+            with open(commit['diff']) as f:
+                commit['diff'] = f.read()
+        pr_number = test['pr_number']
+        _upstream(config, pr_number, test['commits'], False, partial(git_callback, test))
+    print("Successfully ran git upstreaming tests.")
 
 def wait_for_server(port):
     # Wait for server to finish setting up before continuing
@@ -48,16 +87,6 @@ def get_pr_diff(test, pull_request):
 
 with open('tests.json') as f:
     tests = json.loads(f.read())
-
-config = {
-    'servo_org': 'servo',
-    'username': 'servo-wpt-sync',
-    'upstream_org': 'jdm',
-    'port': 5000,
-    'token': '',
-    'api': 'http://localhost:9000',
-    'override_host': 'http://localhost:9000',
-}
 
 def make_api_config(test, payload):
     is_upstreamable = UPSTREAMABLE_PATH in get_pr_diff(test, payload["pull_request"])
