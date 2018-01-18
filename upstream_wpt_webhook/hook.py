@@ -2,8 +2,9 @@
 
 from flask import Flask, request, jsonify, render_template, make_response, abort
 from functools import partial
-from sync import process_and_run_steps, _do_comment_on_pr
+from sync import process_and_run_steps, _do_comment_on_pr, git
 import json
+import os
 import requests
 
 app = Flask(__name__)
@@ -82,4 +83,7 @@ def main(_config, _pr_db):
     app.run(port=config['port'])
 
 if __name__ == "__main__":
-    main(read_config(), read_pr_db())
+    config = read_config()
+    if not os.path.isdir(config['wpt_path']):
+        git(["clone", "--depth=1", "https://github.com/w3c/web-platform-tests.git", config["wpt_path"]])
+    main(config, read_pr_db())
