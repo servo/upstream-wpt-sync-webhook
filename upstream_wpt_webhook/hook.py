@@ -30,6 +30,7 @@ def read_config():
         assert 'upstream_org' in config
         assert 'servo_org' in config
         assert 'port' in config
+        assert 'api' in config
         return config
 
 def get_pr_diff(pull_request):
@@ -61,6 +62,10 @@ def webhook():
 @app.route("/test", methods=["POST"])
 def test():
     return _webhook_impl(pr_db, True)
+
+@app.route("/ping")
+def ping():
+    return ('pong', 200)
 
 @app.route("/shutdown", methods=["POST"])
 def shutdown():

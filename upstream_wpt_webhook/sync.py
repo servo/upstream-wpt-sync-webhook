@@ -6,13 +6,16 @@ import sys
 import subprocess
 import time
 import traceback
+try:
+    import urlparse
+except ImportError:
+    from urllib import parse as urlparse
 
-API = "https://api.github.com/"
 UPSTREAMABLE_PATH = 'tests/wpt/web-platform-tests/'
 NO_SYNC_SIGNAL = '[no-wpt-sync]'
 
 def upstream_pulls(config):
-    return API + ("repos/%s/web-platform-tests/pulls" % config['upstream_org'])
+    return "repos/%s/web-platform-tests/pulls" % config['upstream_org']
 
 class Step:
     def __init__(self, name):
@@ -44,6 +47,12 @@ def authenticated(config, method, url, json=None):
         'Authorization': 'token %s' % config['token'],
         'User-Agent': 'Servo web-platform-test sync service',
     }
+    if 'override_host' in config:
+        # Ensure that any URLs retrieved are rewritten to use the overriden host
+        partial = urlparse.urlsplit(url)
+        url = partial[2] + partial[3] + partial[4]
+
+    url = urlparse.urljoin(config['api'], url)
     print('fetching %s' % url)
     response = s.request(method, url, json=json)
     if int(response.status_code / 100) != 2:
@@ -149,16 +158,13 @@ class ChangeUpstreamStep(Step):
         self.state = state
 
     def run(self, config, dry_run):
-        _change_upstream_pr(config, self.upstream, self.state, dry_run)
+        _change_upstream_pr(config, self.upstream, self.state)
 
 
 def change_upstream_pr(upstream, state, steps):
     steps += [ChangeUpstreamStep(upstream, state)]
 
-def _change_upstream_pr(config, upstream, state, dry_run):
-    if dry_run:
-        return
-
+def _change_upstream_pr(config, upstream, state):
     data = {
         'state': state
     }
@@ -174,16 +180,13 @@ class MergeUpstreamStep(Step):
         self.upstream = upstream
 
     def run(self, config, dry_run):
-        _merge_upstream_pr(config, self.upstream, dry_run)
+        _merge_upstream_pr(config, self.upstream)
 
 
 def merge_upstream_pr(upstream, steps):
     steps += [MergeUpstreamStep(upstream)]
 
-def _merge_upstream_pr(config, upstream, dry_run):
-    if dry_run:
-        return
-
+def _merge_upstream_pr(config, upstream):
     modify_upstream_pr_labels(config, 'DELETE', ['do not merge yet'], upstream)
     data = {
         'merge_method': 'merge',
@@ -197,8 +200,8 @@ def _merge_upstream_pr(config, upstream, dry_run):
 def modify_upstream_pr_labels(config, method, labels, pr_number):
     authenticated(config,
                   method,
-                  API + ('repos/%s/web-platform-tests/issues/%s/labels' %
-                         (config['upstream_org'], pr_number)),
+                  ('repos/%s/web-platform-tests/issues/%s/labels' %
+                   (config['upstream_org'], pr_number)),
                   json=labels)
 
 
@@ -223,8 +226,7 @@ class OpenUpstreamStep(Step):
                                    self.title,
                                    self.source_org,
                                    self.branch.value(),
-                                   self.body,
-                                   dry_run)
+                                   self.body)
         self.new_pr_url.resolve(pr_url)
 
 
@@ -233,10 +235,7 @@ def open_upstream_pr(pr_db, pr_number, title, source_org, branch, body, steps):
     steps += [step]
     return step.provides()['pr_url']
 
-def _open_upstream_pr(config, pr_db, pr_number, title, source_org, branch, body, dry_run):
-    if dry_run:
-        return 'http://test.url'
-
+def _open_upstream_pr(config, pr_db, pr_number, title, source_org, branch, body):
     data = {
         'title': title,
         'head': (config['username'] + ':' + branch) if source_org != config['upstream_org'] else branch,
@@ -263,7 +262,7 @@ class CommentStep(Step):
 
     def run(self, config, dry_run):
         upstream_url = self.upstream_url.value() if isinstance(self.upstream_url, AsyncValue) else self.upstream_url
-        _comment_on_pr(config, self.pr_number, upstream_url, dry_run)
+        _comment_on_pr(config, self.pr_number, upstream_url)
 
 
 def comment_on_pr(pr_number, upstream_url, steps):
@@ -277,14 +276,11 @@ def _do_comment_on_pr(config, pr_number, body):
     }
     return authenticated(config,
                          'POST',
-                         API + ('repos/%s/servo/issues/%s/comments' % (config['servo_org'], pr_number)),
+                         'repos/%s/servo/issues/%s/comments' % (config['servo_org'], pr_number),
                          json=data)
 
 
-def _comment_on_pr(config, pr_number, upstream_url, dry_run):
-    if dry_run:
-        return
-
+def _comment_on_pr(config, pr_number, upstream_url):
     return _do_comment_on_pr(config, pr_number,
                              'Completed upstream sync of web-platform-test changes at %s.' % upstream_url)
 
@@ -306,7 +302,7 @@ class FetchUpstreamableStep(Step):
         return {'commits': self.commits}
 
     def run(self, config, dry_run):
-        commits = _fetch_upstreamable_commits(config, self.pull_request, dry_run)
+        commits = _fetch_upstreamable_commits(config, self.pull_request)
         self.commits.resolve(commits)
 
 
@@ -315,10 +311,7 @@ def fetch_upstreamable_commits(pull_request, steps):
     steps += [step]
     return step.provides()['commits']
 
-def _fetch_upstreamable_commits(config, pull_request, dry_run):
-    if dry_run:
-        return []
-
+def _fetch_upstreamable_commits(config, pull_request):
     r = authenticated(config, 'GET', pull_request["commits_url"])
     commit_data = r.json()
     filtered_commits = []
@@ -328,7 +321,8 @@ def _fetch_upstreamable_commits(config, pull_request, dry_run):
         for file in commit_body['files']:
             if UPSTREAMABLE_PATH in file['filename']:
                 # Retrieve the diff of this commit.
-                r = requests.get(commit['html_url'] + '.diff')
+                diff_url = urlparse.urljoin(config['api'], commit['html_url'] + '.diff')
+                r = requests.get(diff_url)
                 # Create an object that contains everything necessary to transplant this
                 # commit to another repository.
                 filtered_commits += [{
