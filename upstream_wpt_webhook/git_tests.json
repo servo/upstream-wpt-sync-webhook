@@ -1,0 +1,12 @@
+[
+    {
+        "pr_number": 45,
+        "commits": [
+            {
+                "author": "test author <test@author>",
+                "message": "test commit message",
+                "diff": "tests/18746.diff"
+            }
+        ]
+    }
+]
