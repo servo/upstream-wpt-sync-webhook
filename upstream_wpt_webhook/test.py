@@ -12,8 +12,11 @@ import threading
 import time
 import tempfile
 
+do_git_test = len(sys.argv) != 1 and sys.argv[1] == "--git-test"
+
 base_wpt_dir = tempfile.mkdtemp()
-git(["clone", "--depth=1", "https://github.com/w3c/web-platform-tests.git"], cwd=base_wpt_dir)
+if do_git_test:
+    git(["clone", "--depth=1", "https://github.com/w3c/web-platform-tests.git"], cwd=base_wpt_dir)
 
 config = {
     'servo_org': 'servo',
@@ -28,8 +31,10 @@ config = {
 }
 
 def git_callback(test, git):
-    commits = git(["log", "--oneline", "-%d" % len(test['commits'])], cwd=config['wpt_path']).splitlines()
-    if any(map(lambda (actual, expected): expected['message'] not in actual,
+    commits = git(["log", "--oneline", "-%d" % len(test['commits'])], cwd=config['wpt_path'])
+    commits = commits.decode("utf-8")
+    commits = commits.splitlines()
+    if any(map(lambda values: values[1]['message'] not in values[0],
                zip(commits, test['commits']))):
         print
         print("Observed:")
@@ -39,7 +44,7 @@ def git_callback(test, git):
         print(map(lambda s: s['message'], test['commits']))
         sys.exit(1)
 
-if len(sys.argv) == 1 or sys.argv[1] == "--git-test":
+if do_git_test:
     with open('git_tests.json') as f:
         git_tests = json.loads(f.read())
     for test in git_tests:
@@ -122,7 +127,7 @@ for test in tests:
                           step_callback=callback,
                           error_callback=error_callback)
     server.shutdown()
-    if all(map(lambda (s, s2): s == s2 if ':' not in s2 else s.startswith(s2),
+    if all(map(lambda values: values[0] == values[1] if ':' not in values[1] else values[0].startswith(values[1]),
                zip(executed, test['expected']))):
         print('passed')
     else:

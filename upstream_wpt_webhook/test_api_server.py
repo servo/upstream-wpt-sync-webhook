@@ -3,6 +3,11 @@ import json
 import os
 from sync import UPSTREAMABLE_PATH
 
+try:
+    xrange
+except NameError:
+    xrange = range
+
 app = Flask(__name__)
 config = {
     'upstreamable_commits': 0,
