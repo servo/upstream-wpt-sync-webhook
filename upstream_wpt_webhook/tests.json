@@ -7,7 +7,7 @@
             "FetchUpstreamableStep:1",
             "UpstreamStep:1:servo_export_18746",
             "OpenUpstreamStep",
-            "CommentStep:Completed upstream sync"
+            "CommentStep:Opened new PR"
         ]
     },
     {
@@ -31,7 +31,7 @@
             "FetchUpstreamableStep:1",
             "UpstreamStep:1:servo_export_18746",
             "ChangeUpstreamStep:1:opened",
-            "CommentStep:Completed upstream sync"
+            "CommentStep:Transplanted upstreamable"
         ]
     },
     {
@@ -41,7 +41,7 @@
         "db": {"18746": "1"},
         "expected": [
             "ChangeUpstreamStep:1:closed",
-            "CommentStep:Completed upstream sync"
+            "CommentStep:No upstreamable changes"
         ]
     },
     {
@@ -67,7 +67,7 @@
             "FetchUpstreamableStep:1",
             "UpstreamStep:1:servo_export_19612",
             "ChangeUpstreamStep:10:opened",
-            "CommentStep:Completed upstream sync"
+            "CommentStep:Transplanted upstreamable changes"
         ]
     },
     {
@@ -77,7 +77,7 @@
         "db": {"19612": "11"},
         "expected": [
             "ChangeUpstreamStep:11:closed",
-            "CommentStep:Completed upstream sync"
+            "CommentStep:No upstreamable changes"
         ]
     },
     {
@@ -89,7 +89,7 @@
             "FetchUpstreamableStep:1",
             "UpstreamStep:1:servo_export_19612",
             "OpenUpstreamStep",
-            "CommentStep:Completed upstream sync"
+            "CommentStep:Opened new PR"
         ]
     },
     {
@@ -104,7 +104,7 @@
             "FetchUpstreamableStep:3",
             "UpstreamStep:3:servo_export_19612",
             "OpenUpstreamStep",
-            "CommentStep:Completed upstream sync"
+            "CommentStep:Opened new PR"
         ]
     },
     {
