@@ -4,10 +4,10 @@
         "payload": "new_pr.json",
         "db": {},
         "expected": [
-            "FetchUpstreamableStep",
-            "UpstreamStep",
+            "FetchUpstreamableStep:1",
+            "UpstreamStep:1:servo_export_18746",
             "OpenUpstreamStep",
-            "CommentStep"
+            "CommentStep:Completed upstream sync"
         ]
     },
     {
@@ -28,10 +28,10 @@
         "payload": "new_pr.json",
         "db": {"18746": "1"},
         "expected": [
-            "FetchUpstreamableStep",
-            "UpstreamStep",
-            "ChangeUpstreamStep",
-            "CommentStep"
+            "FetchUpstreamableStep:1",
+            "UpstreamStep:1:servo_export_18746",
+            "ChangeUpstreamStep:1:opened",
+            "CommentStep:Completed upstream sync"
         ]
     },
     {
@@ -40,8 +40,8 @@
         "diff": "non-wpt.diff",
         "db": {"18746": "1"},
         "expected": [
-            "ChangeUpstreamStep",
-            "CommentStep"
+            "ChangeUpstreamStep:1:closed",
+            "CommentStep:Completed upstream sync"
         ]
     },
     {
@@ -53,31 +53,31 @@
     {
         "name": "close upstreamable PR",
         "payload": "close_pr.json",
-        "db": {"18746": "1"},
+        "db": {"18746": "10"},
         "expected": [
-            "ChangeUpstreamStep"
+            "ChangeUpstreamStep:10:closed"
         ]
     },
     {
         "name": "synchronize upstreamable PR",
         "payload": "synchronize.json",
         "diff": "18746.diff",
-        "db": {"19612": "1"},
+        "db": {"19612": "10"},
         "expected": [
-            "FetchUpstreamableStep",
-            "UpstreamStep",
-            "ChangeUpstreamStep",
-            "CommentStep"
+            "FetchUpstreamableStep:1",
+            "UpstreamStep:1:servo_export_19612",
+            "ChangeUpstreamStep:10:opened",
+            "CommentStep:Completed upstream sync"
         ]
     },
     {
         "name": "synchronize newly non-upstreamable PR",
         "payload": "synchronize.json",
         "diff": "non-wpt.diff",
-        "db": {"19612": "1"},
+        "db": {"19612": "11"},
         "expected": [
-            "ChangeUpstreamStep",
-            "CommentStep"
+            "ChangeUpstreamStep:11:closed",
+            "CommentStep:Completed upstream sync"
         ]
     },
     {
@@ -86,10 +86,25 @@
         "diff": "18746.diff",
         "db": {},
         "expected": [
-            "FetchUpstreamableStep",
-            "UpstreamStep",
+            "FetchUpstreamableStep:1",
+            "UpstreamStep:1:servo_export_19612",
             "OpenUpstreamStep",
-            "CommentStep"
+            "CommentStep:Completed upstream sync"
+        ]
+    },
+    {
+        "name": "synchronize new upstreamable PR multiple commits",
+        "payload": "synchronize.json",
+        "diff": "18746.diff",
+        "api_config": {
+            "upstreamable_commits": 3
+        },
+        "db": {},
+        "expected": [
+            "FetchUpstreamableStep:3",
+            "UpstreamStep:3:servo_export_19612",
+            "OpenUpstreamStep",
+            "CommentStep:Completed upstream sync"
         ]
     },
     {
@@ -103,9 +118,9 @@
         "name": "merge upstreamed PR",
         "payload": "merged.json",
         "diff": "18746.diff",
-        "db": {"19620": "1"},
+        "db": {"19620": "100"},
         "expected": [
-            "MergeUpstreamStep"
+            "MergeUpstreamStep:100"
         ]
     },
     {

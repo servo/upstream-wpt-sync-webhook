@@ -77,8 +77,10 @@ class UpstreamStep(Step):
         return {'branch': self.branch}
 
     def run(self, config, dry_run):
-        branch = _upstream(config, self.servo_pr_number, self.commits.value(), dry_run)
+        commits = self.commits.value()
+        branch = _upstream(config, self.servo_pr_number, commits, dry_run)
         self.branch.resolve(branch)
+        self.name += ':%d:%s' % (len(commits), branch)
 
 
 def upstream(servo_pr_number, commits, steps):
@@ -153,7 +155,7 @@ def _upstream(config, servo_pr_number, commits, dry_run):
 
 class ChangeUpstreamStep(Step):
     def __init__(self, upstream, state):
-        Step.__init__(self, 'ChangeUpstreamStep')
+        Step.__init__(self, 'ChangeUpstreamStep:%s:%s' % (upstream, state) )
         self.upstream = upstream
         self.state = state
 
@@ -176,7 +178,7 @@ def _change_upstream_pr(config, upstream, state):
 
 class MergeUpstreamStep(Step):
     def __init__(self, upstream):
-        Step.__init__(self, 'MergeUpstreamStep')
+        Step.__init__(self, 'MergeUpstreamStep:' + upstream)
         self.upstream = upstream
 
     def run(self, config, dry_run):
@@ -262,7 +264,7 @@ class CommentStep(Step):
 
     def run(self, config, dry_run):
         upstream_url = self.upstream_url.value() if isinstance(self.upstream_url, AsyncValue) else self.upstream_url
-        _comment_on_pr(config, self.pr_number, upstream_url)
+        self.name += ':' + _comment_on_pr(config, self.pr_number, upstream_url)
 
 
 def comment_on_pr(pr_number, upstream_url, steps):
@@ -281,8 +283,9 @@ def _do_comment_on_pr(config, pr_number, body):
 
 
 def _comment_on_pr(config, pr_number, upstream_url):
-    return _do_comment_on_pr(config, pr_number,
-                             'Completed upstream sync of web-platform-test changes at %s.' % upstream_url)
+    body = 'Completed upstream sync of web-platform-test changes at %s.' % upstream_url
+    _do_comment_on_pr(config, pr_number, body)
+    return body
 
 
 def patch_contains_upstreamable_changes(patch_contents):
@@ -303,6 +306,7 @@ class FetchUpstreamableStep(Step):
 
     def run(self, config, dry_run):
         commits = _fetch_upstreamable_commits(config, self.pull_request)
+        self.name += ':%d' % len(commits)
         self.commits.resolve(commits)
 
 
@@ -416,9 +420,9 @@ def process_and_run_steps(config, pr_db, payload, provider, dry_run,
     try:
         steps = process_json_payload(config, pr_db, payload, provider)
         for step in steps:
+            step.run(config, dry_run)
             if step_callback:
                 step_callback(step)
-            step.run(config, dry_run)
         return True
     except:
         exc_type, exc_value, exc_traceback = sys.exc_info()

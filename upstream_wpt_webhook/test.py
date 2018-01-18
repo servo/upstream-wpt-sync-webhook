@@ -59,14 +59,20 @@ config = {
     'override_host': 'http://localhost:9000',
 }
 
+def make_api_config(test, payload):
+    is_upstreamable = UPSTREAMABLE_PATH in get_pr_diff(test, payload["pull_request"])
+    api_config = {
+        "upstreamable_commits": 1 if is_upstreamable else 0,
+        "non_upstreamable_commits": 0 if is_upstreamable else 1,
+    }
+    api_config.update(test.get('api_config', {}))
+    return api_config
+
 for test in tests:
     with open(os.path.join('tests', test['payload'])) as f:
         payload = json.loads(f.read())
 
-    api_config = {
-        "upstreamable": UPSTREAMABLE_PATH in get_pr_diff(test, payload["pull_request"])
-    }
-    server = APIServerThread(api_config)
+    server = APIServerThread(make_api_config(test, payload))
 
     print(test['name'] + ':'),
     executed = []
@@ -87,7 +93,8 @@ for test in tests:
                           step_callback=callback,
                           error_callback=error_callback)
     server.shutdown()
-    if executed == test['expected']:
+    if all(map(lambda (s, s2): s == s2 if ':' not in s2 else s.startswith(s2),
+               zip(executed, test['expected']))):
         print('passed')
     else:
         print()
@@ -120,10 +127,11 @@ for (i, test) in enumerate(tests):
     this_config = copy.deepcopy(config)
     this_config['port'] += i
     server = ServerThread(this_config)
-    api_server = APIServerThread(test.get('api_config', {}))
 
     with open(os.path.join('tests', test['payload'])) as f:
         payload = f.read()
+
+    api_server = APIServerThread(make_api_config(test, json.loads(payload)))
 
     r = requests.post('http://localhost:' + str(this_config['port']) + '/test', data={'payload': payload})
     if r.status_code != 204:

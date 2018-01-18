@@ -5,7 +5,8 @@ from sync import UPSTREAMABLE_PATH
 
 app = Flask(__name__)
 config = {
-    'upstreamable': False
+    'upstreamable_commits': 0,
+    'non_upstreamable_commits': 0,
 }
 
 def start_server(port, _config):
@@ -25,18 +26,25 @@ def shutdown():
 def ping():
     return ('pong', 200)
 
-def commits_with_single_commit(upstreamable):
-    return [{
-        "url": "/commit_metadata",
-        "html_url": "18746" if upstreamable else "non-wpt",
-        "commit": {
-            "author": {
-                "name": "foo",
-                "email": "foo@foo",
+def commits(upstreamable=0, non_upstreamable=0):
+    def make_commit(upstreamble):
+        return {
+            "url": "/commit_metadata",
+            "html_url": "18746" if upstreamable else "non-wpt",
+            "commit": {
+                "author": {
+                    "name": "foo",
+                    "email": "foo@foo",
+                },
+                "message": "%supstreamable commit" % ("non-" if not upstreamable else ""),
             },
-            "message": "%supstreamable commit" % ("non-" if not upstreamable else ""),
-        },
-    }]
+        }
+    commits = []
+    for i in xrange(upstreamable):
+        commits += [make_commit(True)]
+    for i in xrange(non_upstreamable):
+        commits += [make_commit(False)]
+    return commits
 
 def commit_with_single_file(upstreamable):
     return {
@@ -55,9 +63,10 @@ def new_pull_request():
 @app.route("/<path:path>", methods=["POST","PATCH","GET", "DELETE", "PUT"])
 def catch_all(path):
     if path.endswith('/commits'):
-        return (json.dumps(commits_with_single_commit(config['upstreamable'])), 200)
+        return (json.dumps(commits(config['upstreamable_commits'],
+                                   config['non_upstreamable_commits'])), 200)
     elif path.endswith('commit_metadata'):
-        return (json.dumps(commit_with_single_file(config['upstreamable'])), 200)
+        return (json.dumps(commit_with_single_file(config['upstreamable_commits'] != 0)), 200)
     elif path.endswith('pulls'):
         return (json.dumps(new_pull_request()), 200)
     elif path.endswith('merge'):
