@@ -257,18 +257,19 @@ def _open_upstream_pr(config, pr_db, pr_number, title, source_org, branch, body)
 
 
 class CommentStep(Step):
-    def __init__(self, pr_number, upstream_url):
+    def __init__(self, pr_number, upstream_url, extra):
         Step.__init__(self, 'CommentStep')
         self.pr_number = pr_number
         self.upstream_url = upstream_url
+        self.extra = extra
 
     def run(self, config, dry_run):
         upstream_url = self.upstream_url.value() if isinstance(self.upstream_url, AsyncValue) else self.upstream_url
-        self.name += ':' + _comment_on_pr(config, self.pr_number, upstream_url)
+        self.name += ':' + _comment_on_pr(config, self.pr_number, self.extra, upstream_url)
 
 
-def comment_on_pr(pr_number, upstream_url, steps):
-    step = CommentStep(pr_number, upstream_url)
+def comment_on_pr(pr_number, upstream_url, extra, steps):
+    step = CommentStep(pr_number, upstream_url, extra)
     steps += [step]
 
 
@@ -282,8 +283,9 @@ def _do_comment_on_pr(config, pr_number, body):
                          json=data)
 
 
-def _comment_on_pr(config, pr_number, upstream_url):
-    body = 'Completed upstream sync of web-platform-test changes at %s.' % upstream_url
+def _comment_on_pr(config, pr_number, upstream_url, extra):
+    body = '%s\n\nCompleted upstream sync of web-platform-test changes at %s.' % (
+        upstream_url, extra)
     _do_comment_on_pr(config, pr_number, body)
     return body
 
@@ -353,10 +355,13 @@ def process_new_pr_contents(config, pr_db, pull_request, pr_diff, steps):
             # In case this is adding new upstreamable changes to a PR that was closed
             # due to a lack of upstreamable changes, force it to be reopened.
             change_upstream_pr(pr_db[pr_number], 'opened', steps)
+            extra_comment = 'Transplanted upstreamable changes to existing PR.'
         else:
             # Close the upstream PR, since would contain no changes otherwise.
             change_upstream_pr(pr_db[pr_number], 'closed', steps)
-        comment_on_pr(pr_number, upstream_pulls(config) + '/' + str(pr_db[pr_number]), steps)
+            extra_comment = 'No upstreamable changes; closed existing PR.'
+        comment_on_pr(pr_number, upstream_pulls(config) + '/' + str(pr_db[pr_number]),
+                      extra_comment, steps)
     elif patch_contains_upstreamable_changes(pr_diff):
         # Retrieve the set of commits that need to be transplanted.
         commits = fetch_upstreamable_commits(pull_request, steps)
@@ -368,7 +373,7 @@ def process_new_pr_contents(config, pr_db, pull_request, pr_diff, steps):
         # Create a pull request against the upstream repository for the new branch.
         upstream_url = open_upstream_pr(pr_db, pr_number, pull_request['title'], config['username'], branch, body, steps)
         # Leave a comment to the new pull request in the original pull request.
-        comment_on_pr(pr_number, upstream_url, steps)
+        comment_on_pr(pr_number, upstream_url, 'Opened new PR for upstreamable changes.', steps)
 
 
 def process_closed_pr(pr_db, pull_request, steps):
