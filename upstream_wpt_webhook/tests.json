@@ -111,6 +111,7 @@
     {
         "name": "merge non-upstreamed PR",
         "payload": "merged.json",
+        "diff": "non-wpt.diff",
         "db": {},
         "expected": []
     }

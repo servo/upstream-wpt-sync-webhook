@@ -23,6 +23,8 @@ config = {
     'username': 'servo-wpt-sync',
     'upstream_org': 'jdm',
     'port': 5000,
+    'token': '',
+    'api': 'http://api.github.com',
 }
 
 def get_pr_diff(pull_request):
