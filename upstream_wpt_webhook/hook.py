@@ -82,8 +82,11 @@ def main(_config, _pr_db):
     pr_db = _pr_db
     app.run(port=config['port'])
 
-if __name__ == "__main__":
+def start():
     config = read_config()
     if not os.path.isdir(config['wpt_path']):
         git(["clone", "--depth=1", "https://github.com/w3c/web-platform-tests.git", config["wpt_path"]])
     main(config, read_pr_db())
+
+if __name__ == "__main__":
+    start()
