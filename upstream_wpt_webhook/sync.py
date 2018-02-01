@@ -354,13 +354,15 @@ def process_new_pr_contents(config, pr_db, pull_request, pr_diff, steps):
     # Is this updating an existing pull request?
     if pr_number in pr_db:
         if patch_contains_upstreamable_changes(pr_diff):
+            # In case this is adding new upstreamable changes to a PR that was closed
+            # due to a lack of upstreamable changes, force it to be reopened.
+            # Github refuses to reopen a PR that had a branch force pushed, so be sure
+            # to do this first.
+            change_upstream_pr(pr_db[pr_number], 'opened', steps)
             # Retrieve the set of commits that need to be transplanted.
             commits = fetch_upstreamable_commits(pull_request, steps)
             # Push the relevant changes to the upstream branch.
             upstream(pr_number, commits, steps)
-            # In case this is adding new upstreamable changes to a PR that was closed
-            # due to a lack of upstreamable changes, force it to be reopened.
-            change_upstream_pr(pr_db[pr_number], 'opened', steps)
             extra_comment = 'Transplanted upstreamable changes to existing PR.'
         else:
             # Close the upstream PR, since would contain no changes otherwise.

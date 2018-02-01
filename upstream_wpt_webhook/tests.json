@@ -28,9 +28,9 @@
         "payload": "new_pr.json",
         "db": {"18746": "1"},
         "expected": [
+            "ChangeUpstreamStep:1:opened",
             "FetchUpstreamableStep:1",
             "UpstreamStep:1:servo_export_18746",
-            "ChangeUpstreamStep:1:opened",
             "CommentStep:Transplanted upstreamable"
         ]
     },
@@ -64,9 +64,9 @@
         "diff": "18746.diff",
         "db": {"19612": "10"},
         "expected": [
+            "ChangeUpstreamStep:10:opened",
             "FetchUpstreamableStep:1",
             "UpstreamStep:1:servo_export_19612",
-            "ChangeUpstreamStep:10:opened",
             "CommentStep:Transplanted upstreamable changes"
         ]
     },
