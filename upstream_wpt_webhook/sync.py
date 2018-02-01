@@ -402,7 +402,7 @@ def process_json_payload(config, pr_db, payload, diff_provider):
         return []
 
     steps = []
-    if payload['action'] in ['opened', 'synchronize']:
+    if payload['action'] in ['opened', 'synchronize', 'reopened']:
         process_new_pr_contents(config, pr_db, pull_request, diff_provider(pull_request), steps)
     elif payload['action'] == 'closed':
         process_closed_pr(pr_db, pull_request, steps)
