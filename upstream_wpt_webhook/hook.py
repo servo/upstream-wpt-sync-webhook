@@ -85,7 +85,7 @@ def main(_config, _pr_db):
 def start():
     config = read_config()
     if not os.path.isdir(config['wpt_path']):
-        git(["clone", "--depth=1", "https://github.com/w3c/web-platform-tests.git", config["wpt_path"]], cwd='.')
+        git(["clone", "https://github.com/w3c/web-platform-tests.git", config["wpt_path"]], cwd='.')
     main(config, read_pr_db())
 
 if __name__ == "__main__":
