@@ -1,12 +1,14 @@
+import os
+import sys
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+
 import copy
 from functools import partial
 import hook
 import json
-import os
 import requests
 import sync
 from sync import process_and_run_steps, UPSTREAMABLE_PATH, _upstream, git
-import sys
 from test_api_server import start_server
 import threading
 import time

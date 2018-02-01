@@ -1,10 +1,13 @@
 #!/usr/bin/env python
 
+import os
+import sys
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+
 from flask import Flask, request, jsonify, render_template, make_response, abort
 from functools import partial
-from .sync import process_and_run_steps, _do_comment_on_pr, git
+from sync import process_and_run_steps, _do_comment_on_pr, git
 import json
-import os
 import requests
 
 app = Flask(__name__)
