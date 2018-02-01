@@ -184,7 +184,7 @@ def _change_upstream_pr(config, upstream, state):
 
 class MergeUpstreamStep(Step):
     def __init__(self, upstream):
-        Step.__init__(self, 'MergeUpstreamStep:' + upstream)
+        Step.__init__(self, 'MergeUpstreamStep:' + str(upstream))
         self.upstream = upstream
 
     def run(self, config, dry_run):

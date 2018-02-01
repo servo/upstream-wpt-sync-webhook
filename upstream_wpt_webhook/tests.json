@@ -26,7 +26,7 @@
     {
         "name": "open existing upstreamable PR",
         "payload": "new_pr.json",
-        "db": {"18746": "1"},
+        "db": {"18746": 1},
         "expected": [
             "ChangeUpstreamStep:1:opened",
             "FetchUpstreamableStep:1",
@@ -38,7 +38,7 @@
         "name": "open existing non-upstreamable PR",
         "payload": "new_pr.json",
         "diff": "non-wpt.diff",
-        "db": {"18746": "1"},
+        "db": {"18746": 1},
         "expected": [
             "ChangeUpstreamStep:1:closed",
             "CommentStep:No upstreamable changes"
@@ -53,7 +53,7 @@
     {
         "name": "close upstreamable PR",
         "payload": "close_pr.json",
-        "db": {"18746": "10"},
+        "db": {"18746": 10},
         "expected": [
             "ChangeUpstreamStep:10:closed"
         ]
@@ -62,7 +62,7 @@
         "name": "synchronize upstreamable PR",
         "payload": "synchronize.json",
         "diff": "18746.diff",
-        "db": {"19612": "10"},
+        "db": {"19612": 10},
         "expected": [
             "ChangeUpstreamStep:10:opened",
             "FetchUpstreamableStep:1",
@@ -74,7 +74,7 @@
         "name": "synchronize newly non-upstreamable PR",
         "payload": "synchronize.json",
         "diff": "non-wpt.diff",
-        "db": {"19612": "11"},
+        "db": {"19612": 11},
         "expected": [
             "ChangeUpstreamStep:11:closed",
             "CommentStep:No upstreamable changes"
@@ -118,7 +118,7 @@
         "name": "merge upstreamed PR",
         "payload": "merged.json",
         "diff": "18746.diff",
-        "db": {"19620": "100"},
+        "db": {"19620": 100},
         "expected": [
             "MergeUpstreamStep:100"
         ]
