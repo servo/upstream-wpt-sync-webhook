@@ -368,7 +368,8 @@ def process_new_pr_contents(config, pr_db, pull_request, pr_diff, steps):
             # Close the upstream PR, since would contain no changes otherwise.
             change_upstream_pr(pr_db[pr_number], 'closed', steps)
             extra_comment = 'No upstreamable changes; closed existing PR.'
-        comment_on_pr(pr_number, upstream_pulls(config) + '/' + str(pr_db[pr_number]),
+        comment_on_pr(pr_number,
+                      '%s/web-platform-tests#%s' % (config['upstream_org'], pr_db[pr_number]),
                       extra_comment, steps)
     elif patch_contains_upstreamable_changes(pr_diff):
         # Retrieve the set of commits that need to be transplanted.
