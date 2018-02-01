@@ -63,7 +63,7 @@ def authenticated(config, method, url, json=None):
 def git(*args, **kwargs):
     command_line = ["git"] + list(*args)
     print(' '.join(map(lambda x: ('"%s"' % x) if ' ' in x else x, command_line)))
-    return subprocess.check_output(command_line, cwd=kwargs['cwd'])
+    return subprocess.check_output(command_line, cwd=kwargs['cwd'], env=kwargs.get('env', {}))
 
 
 class UpstreamStep(Step):
@@ -130,7 +130,9 @@ def _upstream(config, servo_pr_number, commits, dry_run, pre_delete_callback=Non
             # Commit the changes
             git(["add", "--all"], cwd=config['wpt_path'])
             git(["commit", "--message", commit['message'], "--author", commit['author']],
-                cwd=config['wpt_path'])
+                cwd=config['wpt_path'],
+                env={'GIT_COMMITTER_NAME': 'Servo WPT Sync',
+                     'GIT_COMMITTER_EMAIL': 'josh+wptsync@joshmatthews.net'})
 
         remote_url = "https://{user}:{token}@github.com/{user}/web-platform-tests.git".format(
             user=config['username'],
