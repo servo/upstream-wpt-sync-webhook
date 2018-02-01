@@ -347,7 +347,7 @@ def _fetch_upstreamable_commits(config, pull_request):
     return filtered_commits
 
 
-SERVO_PR_URL = "https://github.com/%s/servo/pulls/%s"
+SERVO_PR_URL = "https://github.com/%s/servo/pull/%s"
 
 def process_new_pr_contents(config, pr_db, pull_request, pr_diff, steps):
     pr_number = str(pull_request['number'])
