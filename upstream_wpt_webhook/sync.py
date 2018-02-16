@@ -338,9 +338,9 @@ def _fetch_upstreamable_commits(config, pull_request):
                 # Create an object that contains everything necessary to transplant this
                 # commit to another repository.
                 filtered_commits += [{
-                    'author': "%s <%s>" % (commit['commit']['author']['name'],
-                                           commit['commit']['author']['email']),
-                    'message': commit['commit']['message'],
+                    'author': "%s <%s>" % (commit['commit']['author']['name'].encode('utf-8'),
+                                           commit['commit']['author']['email'].encode('utf-8')),
+                    'message': commit['commit']['message'].encode('utf-8'),
                     'diff': r.text,
                 }]
                 break
