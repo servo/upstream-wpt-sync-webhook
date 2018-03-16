@@ -95,14 +95,11 @@
     {
         "name": "synchronize new upstreamable PR multiple commits",
         "payload": "synchronize.json",
-        "diff": "18746.diff",
-        "api_config": {
-            "upstreamable_commits": 3
-        },
+        "diff": ["18746.diff", "non-wpt.diff", "wpt.diff"],
         "db": {},
         "expected": [
-            "FetchUpstreamableStep:3",
-            "UpstreamStep:3:servo_export_19612",
+            "FetchUpstreamableStep:2",
+            "UpstreamStep:2:servo_export_19612",
             "OpenUpstreamStep",
             "CommentStep:Opened new PR"
         ]

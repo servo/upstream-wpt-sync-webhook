@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify, render_template, make_response, abort
 import json
 import os
-from sync import UPSTREAMABLE_PATH
+from sync import UPSTREAMABLE_PATH, git, get_filtered_diff
 
 try:
     xrange
@@ -10,8 +10,9 @@ except NameError:
 
 app = Flask(__name__)
 config = {
-    'upstreamable_commits': 0,
-    'non_upstreamable_commits': 0,
+    'servo_path': None,
+    'diff_files': None,
+    'upstreamable': {},
 }
 
 def start_server(port, _config):
@@ -31,25 +32,36 @@ def shutdown():
 def ping():
     return ('pong', 200)
 
-def commits(upstreamable=0, non_upstreamable=0):
-    def make_commit(upstreamble):
+def commits():
+    def make_commit(diff_file):
+        this_dir = os.path.abspath(os.path.dirname(__file__))
+
+        # Temporarily apply the diff to make a commit object that can be retrieved later
+        git(["apply", os.path.join(this_dir, 'tests', diff_file)],
+            cwd=config['servo_path'])
+        git(["add", "."], cwd=config['servo_path'])
+        git(["commit", "-a", "-m", "tmp", "--author", "test <test@test.test>"],
+            cwd=config['servo_path'],
+            env={'GIT_COMMITTER_NAME': 'test',
+                 'GIT_COMMITTER_EMAIL': 'test@test.test'})
+        output = git(["log", "-1", "--oneline"], cwd=config['servo_path'])
+        sha = output.split()[0]
+        config['upstreamable'][sha] = (get_filtered_diff(config['servo_path'], sha) == '')
+        git(["reset", "--hard", "HEAD^"], cwd=config['servo_path'])
+
         return {
-            "url": "/commit_metadata",
-            "html_url": "18746" if upstreamable else "non-wpt",
+            "url": "/commit_metadata/" + sha,
+            "html_url": diff_file[:-5],  # strip trailing .diff
+            "sha": sha,
             "commit": {
                 "author": {
                     "name": "foo",
                     "email": "foo@foo",
                 },
-                "message": "%supstreamable commit" % ("non-" if not upstreamable else ""),
+                "message": "tmp",
             },
         }
-    commits = []
-    for i in xrange(upstreamable):
-        commits += [make_commit(True)]
-    for i in xrange(non_upstreamable):
-        commits += [make_commit(False)]
-    return commits
+    return list(map(lambda x: make_commit(x), config['diff_files']))
 
 def commit_with_single_file(upstreamable):
     return {
@@ -68,10 +80,10 @@ def new_pull_request():
 @app.route("/<path:path>", methods=["POST","PATCH","GET", "DELETE", "PUT"])
 def catch_all(path):
     if path.endswith('/commits'):
-        return (json.dumps(commits(config['upstreamable_commits'],
-                                   config['non_upstreamable_commits'])), 200)
-    elif path.endswith('commit_metadata'):
-        return (json.dumps(commit_with_single_file(config['upstreamable_commits'] != 0)), 200)
+        return (json.dumps(commits()), 200)
+    elif 'commit_metadata/' in path:
+        sha = path.split('/')[-1]
+        return (json.dumps(commit_with_single_file(config['upstreamable'][sha])), 200)
     elif path.endswith('pulls'):
         return (json.dumps(new_pull_request()), 200)
     elif path.endswith('merge'):
