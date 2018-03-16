@@ -6,7 +6,7 @@ sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
 from flask import Flask, request, jsonify, render_template, make_response, abort
 from functools import partial
-from sync import process_and_run_steps, _do_comment_on_pr, git
+from sync import process_and_run_steps, _do_comment_on_pr, git, UPSTREAMABLE_PATH
 import json
 import requests
 
@@ -30,6 +30,7 @@ def read_config():
         config = json.loads(f.read())
         assert 'token' in config
         assert 'username' in config
+        assert 'servo_path' in config
         assert 'wpt_path' in config
         assert 'upstream_org' in config
         assert 'servo_org' in config
@@ -42,15 +43,23 @@ def get_pr_diff(pull_request):
 
 ERROR_BODY = "Error syncing changes upstream. Logs saved in %s."
 
-def error_callback(config, dry_run, payload, dir_name):
-    if not dry_run:
-        _do_comment_on_pr(config, payload["pull_request"]["number"], ERROR_BODY % dir_name)
+def error_callback(config, payload, dir_name):
+    _do_comment_on_pr(config, payload["pull_request"]["number"], ERROR_BODY % dir_name)
+
+
+def fetch_upstream_branch(config, pull_request):
+    # Retrieve all of the commits from the upstream pull request
+    return git(["fetch", "origin", "pull/%s/head" % pull_request["number"]],
+               cwd=config['servo_path'])
+
 
 def _webhook_impl(pr_db, dry_run):
     payload = request.form.get('payload', '{}')
     payload = json.loads(payload)
-    result = process_and_run_steps(config, pr_db, payload, get_pr_diff, dry_run,
-                                   error_callback=partial(error_callback, config, dry_run, payload))
+    error_callback = partial(error_callback, config, payload) if not dry_run else None
+    result = process_and_run_steps(config, pr_db, payload, get_pr_diff,
+                                   partial(fetch_upstream_branch, config) if not dry_run else None,
+                                   error_callback=error_callback)
     if not result:
         return ('', 500)
 
@@ -89,6 +98,8 @@ def start():
     config = read_config()
     if not os.path.isdir(config['wpt_path']):
         git(["clone", "https://github.com/w3c/web-platform-tests.git", config["wpt_path"]], cwd='.')
+    if not os.path.isdir(config['servo_path']):
+        git(["clone", "https://github.com/servo/servo.git", config["servo_path"]], cwd='.')
     main(config, read_pr_db())
 
 if __name__ == "__main__":

@@ -24,7 +24,7 @@ class Step:
     def provides(self):
         return {}
 
-    def run(self, dry_run):
+    def run(self):
         pass
 
 
@@ -62,8 +62,19 @@ def authenticated(config, method, url, json=None):
 
 def git(*args, **kwargs):
     command_line = ["git"] + list(*args)
-    print(' '.join(map(lambda x: ('"%s"' % x) if ' ' in x else x, command_line)))
-    return subprocess.check_output(command_line, cwd=kwargs['cwd'], env=kwargs.get('env', {}))
+    #print(' '.join(map(lambda x: ('"%s"' % x) if ' ' in x else x, command_line)))
+    try:
+        out = subprocess.check_output(command_line, cwd=kwargs['cwd'], env=kwargs.get('env', {}))
+        return out.decode('utf-8')
+    except subprocess.CalledProcessError as e:
+        print(e.output)
+        raise e
+
+
+def get_filtered_diff(path, commit):
+    # Retrieve the diff of any changes to files that are relevant
+    return git(["show", "--format=%b", commit, '--', UPSTREAMABLE_PATH],
+               cwd=path)
 
 
 class UpstreamStep(Step):
@@ -76,9 +87,9 @@ class UpstreamStep(Step):
         self.branch = AsyncValue()
         return {'branch': self.branch}
 
-    def run(self, config, dry_run):
+    def run(self, config):
         commits = self.commits.value()
-        branch = _upstream(config, self.servo_pr_number, commits, dry_run)
+        branch = _upstream(config, self.servo_pr_number, commits)
         self.branch.resolve(branch)
         self.name += ':%d:%s' % (len(commits), branch)
 
@@ -88,10 +99,8 @@ def upstream(servo_pr_number, commits, steps):
     steps += [step]
     return step.provides()['branch']
 
-def _upstream(config, servo_pr_number, commits, dry_run, pre_delete_callback=None):
+def _upstream(config, servo_pr_number, commits, pre_delete_callback=None):
     BRANCH_NAME = "servo_export_%s" % servo_pr_number
-    if dry_run:
-        return BRANCH_NAME
 
     def upstream_inner(config, commits):
         PATCH_FILE = 'tmp.patch'
@@ -111,15 +120,6 @@ def _upstream(config, servo_pr_number, commits, dry_run, pre_delete_callback=Non
             # Export the current diff to a file
             with open(patch_path, 'w') as f:
                 f.write(commit['diff'])
-
-            # Remove all non-WPT changes from the diff.
-            filtered = subprocess.check_output(["filterdiff",
-                                                "-p", "1",
-                                                "-i", UPSTREAMABLE_PATH + "*",
-                                                PATCH_FILE],
-                                               cwd=config['wpt_path'])
-            with open(patch_path, 'w') as f:
-                f.write(filtered.decode("utf-8"))
 
             # Apply the filtered changes
             git(["apply", PATCH_FILE, "-p", str(STRIP_COUNT)], cwd=config['wpt_path'])
@@ -165,7 +165,7 @@ class ChangeUpstreamStep(Step):
         self.upstream = upstream
         self.state = state
 
-    def run(self, config, dry_run):
+    def run(self, config):
         _change_upstream_pr(config, self.upstream, self.state)
 
 
@@ -187,7 +187,7 @@ class MergeUpstreamStep(Step):
         Step.__init__(self, 'MergeUpstreamStep:' + str(upstream))
         self.upstream = upstream
 
-    def run(self, config, dry_run):
+    def run(self, config):
         _merge_upstream_pr(config, self.upstream)
 
 
@@ -227,7 +227,7 @@ class OpenUpstreamStep(Step):
         self.new_pr_url = AsyncValue()
         return {'pr_url': self.new_pr_url}
 
-    def run(self, config, dry_run):
+    def run(self, config):
         pr_url = _open_upstream_pr(config,
                                    self.pr_db,
                                    self.pr_number,
@@ -269,7 +269,7 @@ class CommentStep(Step):
         self.upstream_url = upstream_url
         self.extra = extra
 
-    def run(self, config, dry_run):
+    def run(self, config):
         upstream_url = self.upstream_url.value() if isinstance(self.upstream_url, AsyncValue) else self.upstream_url
         self.name += ':' + _comment_on_pr(config, self.pr_number, self.extra, upstream_url)
 
@@ -304,52 +304,50 @@ def patch_contains_upstreamable_changes(patch_contents):
 
 
 class FetchUpstreamableStep(Step):
-    def __init__(self, pull_request):
+    def __init__(self, pull_request, fetch_action):
         Step.__init__(self, 'FetchUpstreamableStep')
         self.pull_request = pull_request
+        self.fetch_action = fetch_action
 
     def provides(self):
         self.commits = AsyncValue()
         return {'commits': self.commits}
 
-    def run(self, config, dry_run):
-        commits = _fetch_upstreamable_commits(config, self.pull_request)
+    def run(self, config):
+        commits = _fetch_upstreamable_commits(config, self.pull_request, self.fetch_action)
         self.name += ':%d' % len(commits)
         self.commits.resolve(commits)
 
 
-def fetch_upstreamable_commits(pull_request, steps):
-    step = FetchUpstreamableStep(pull_request)
+def fetch_upstreamable_commits(pull_request, fetch_action, steps):
+    step = FetchUpstreamableStep(pull_request, fetch_action)
     steps += [step]
     return step.provides()['commits']
 
-def _fetch_upstreamable_commits(config, pull_request):
+
+def _fetch_upstreamable_commits(config, pull_request, fetch_action):
     r = authenticated(config, 'GET', pull_request["commits_url"])
     commit_data = r.json()
     filtered_commits = []
+    if fetch_action:
+        fetch_action(pull_request)
     for commit in commit_data:
-        r = authenticated(config, 'GET', commit['url'])
-        commit_body = r.json()
-        for file in commit_body['files']:
-            if UPSTREAMABLE_PATH in file['filename']:
-                # Retrieve the diff of this commit.
-                diff_url = urlparse.urljoin(config['api'], commit['html_url'] + '.diff')
-                r = requests.get(diff_url)
-                # Create an object that contains everything necessary to transplant this
-                # commit to another repository.
-                filtered_commits += [{
-                    'author': "%s <%s>" % (commit['commit']['author']['name'].encode('utf-8'),
-                                           commit['commit']['author']['email'].encode('utf-8')),
-                    'message': commit['commit']['message'].encode('utf-8'),
-                    'diff': r.text,
-                }]
-                break
+        diff = get_filtered_diff(config['servo_path'], commit['sha'])
+        if diff:
+            # Create an object that contains everything necessary to transplant this
+            # commit to another repository.
+            filtered_commits += [{
+                'author': "%s <%s>" % (commit['commit']['author']['name'].encode('utf-8'),
+                                       commit['commit']['author']['email'].encode('utf-8')),
+                'message': commit['commit']['message'].encode('utf-8'),
+                'diff': diff,
+            }]
     return filtered_commits
 
 
 SERVO_PR_URL = "https://github.com/%s/servo/pull/%s"
 
-def process_new_pr_contents(config, pr_db, pull_request, pr_diff, steps):
+def process_new_pr_contents(config, pr_db, pull_request, pr_diff, fetch_action, steps):
     pr_number = str(pull_request['number'])
     # Is this updating an existing pull request?
     if pr_number in pr_db:
@@ -360,7 +358,7 @@ def process_new_pr_contents(config, pr_db, pull_request, pr_diff, steps):
             # to do this first.
             change_upstream_pr(pr_db[pr_number], 'opened', steps)
             # Retrieve the set of commits that need to be transplanted.
-            commits = fetch_upstreamable_commits(pull_request, steps)
+            commits = fetch_upstreamable_commits(pull_request, fetch_action, steps)
             # Push the relevant changes to the upstream branch.
             upstream(pr_number, commits, steps)
             extra_comment = 'Transplanted upstreamable changes to existing PR.'
@@ -373,7 +371,7 @@ def process_new_pr_contents(config, pr_db, pull_request, pr_diff, steps):
                       extra_comment, steps)
     elif patch_contains_upstreamable_changes(pr_diff):
         # Retrieve the set of commits that need to be transplanted.
-        commits = fetch_upstreamable_commits(pull_request, steps)
+        commits = fetch_upstreamable_commits(pull_request, fetch_action, steps)
         # Push the relevant changes to a new upstream branch.
         branch = upstream(pr_number, commits, steps)
         # TODO: extract the non-checklist/reviewable parts of the pull request body
@@ -401,14 +399,15 @@ def process_closed_pr(pr_db, pull_request, steps):
         change_upstream_pr(pr_db[pr_number], 'closed', steps)
 
         
-def process_json_payload(config, pr_db, payload, diff_provider):
+def process_json_payload(config, pr_db, payload, diff_provider, fetch_action):
     pull_request = payload['pull_request']
     if NO_SYNC_SIGNAL in pull_request['body']:
         return []
 
     steps = []
     if payload['action'] in ['opened', 'synchronize', 'reopened']:
-        process_new_pr_contents(config, pr_db, pull_request, diff_provider(pull_request), steps)
+        process_new_pr_contents(config, pr_db, pull_request, diff_provider(pull_request),
+                                fetch_action, steps)
     elif payload['action'] == 'closed':
         process_closed_pr(pr_db, pull_request, steps)
     return steps
@@ -428,13 +427,13 @@ def save_snapshot(payload, exception_info, pr_db, diff_provider):
     return name
 
 
-def process_and_run_steps(config, pr_db, payload, provider, dry_run,
+def process_and_run_steps(config, pr_db, payload, provider, fetch_action,
                           step_callback=None, error_callback=None):
     orig_pr_db = copy.deepcopy(pr_db)
     try:
-        steps = process_json_payload(config, pr_db, payload, provider)
+        steps = process_json_payload(config, pr_db, payload, provider, fetch_action)
         for step in steps:
-            step.run(config, dry_run)
+            step.run(config)
             if step_callback:
                 step_callback(step)
         return True
