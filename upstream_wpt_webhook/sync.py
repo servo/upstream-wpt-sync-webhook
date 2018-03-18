@@ -1,4 +1,5 @@
 import copy
+from functools import partial
 import json
 import os
 import requests
@@ -71,10 +72,26 @@ def git(*args, **kwargs):
         raise e
 
 
-def get_filtered_diff(path, commit):
-    # Retrieve the diff of any changes to files that are relevant
-    return git(["show", "--binary", "--format=%b", commit, '--',  UPSTREAMABLE_PATH],
-               cwd=path)
+def get_filtered_diff(path, commit, fetch=None):
+    tries = 1
+    while True:
+        try:
+            # Retrieve the diff of any changes to files that are relevant
+            return git(["show", "--binary", "--format=%b", commit, '--',  UPSTREAMABLE_PATH],
+                       cwd=path)
+        except Exception as e:
+            if tries < 6 and fetch:
+                # Wait 10 seconds, then try fetching the branch again
+                time.sleep(10)
+                fetch()
+                tries += 1
+                continue
+            raise e
+
+
+def fetch_upstream_branch(config, branch):
+    # Retrieve all of the commits from the upstream pull request
+    return git(["fetch", "origin", branch], cwd=config['servo_path'])
 
 
 class UpstreamStep(Step):
@@ -325,14 +342,12 @@ def fetch_upstreamable_commits(pull_request, fetch_action, steps):
     return step.provides()['commits']
 
 
-def _fetch_upstreamable_commits(config, pull_request, fetch_action):
+def _fetch_upstreamable_commits(config, pull_request, fetch):
     r = authenticated(config, 'GET', pull_request["commits_url"])
     commit_data = r.json()
     filtered_commits = []
-    if fetch_action:
-        fetch_action(pull_request)
     for commit in commit_data:
-        diff = get_filtered_diff(config['servo_path'], commit['sha'])
+        diff = get_filtered_diff(config['servo_path'], commit['sha'], fetch)
         if diff:
             # Create an object that contains everything necessary to transplant this
             # commit to another repository.

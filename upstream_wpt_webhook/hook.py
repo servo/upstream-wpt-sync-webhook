@@ -6,7 +6,7 @@ sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
 from flask import Flask, request, jsonify, render_template, make_response, abort
 from functools import partial
-from sync import process_and_run_steps, _do_comment_on_pr, git, UPSTREAMABLE_PATH
+from sync import process_and_run_steps, _do_comment_on_pr, git, UPSTREAMABLE_PATH, fetch_upstream_branch
 import json
 import requests
 
@@ -47,18 +47,16 @@ def error_callback(config, payload, dir_name):
     _do_comment_on_pr(config, payload["pull_request"]["number"], ERROR_BODY % dir_name)
 
 
-def fetch_upstream_branch(config, pull_request):
-    # Retrieve all of the commits from the upstream pull request
-    return git(["fetch", "origin", "pull/%s/head" % pull_request["number"]],
-               cwd=config['servo_path'])
-
-
 def _webhook_impl(pr_db, dry_run):
     payload = request.form.get('payload', '{}')
     payload = json.loads(payload)
     error = partial(error_callback, config, payload) if not dry_run else None
+    if dry_run:
+        branch_name = "master"
+    else:
+        branch_name = "pull/%s/head" % payload["pull_request"]["number"]
     result = process_and_run_steps(config, pr_db, payload, get_pr_diff,
-                                   partial(fetch_upstream_branch, config) if not dry_run else None,
+                                   partial(fetch_upstream_branch, branch_name),
                                    error_callback=error)
     if not result:
         return ('', 500)

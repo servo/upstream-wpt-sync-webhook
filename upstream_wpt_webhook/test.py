@@ -8,7 +8,7 @@ import hook
 import json
 import requests
 import sync
-from sync import process_and_run_steps, UPSTREAMABLE_PATH, _upstream, git, get_filtered_diff
+from sync import process_and_run_steps, UPSTREAMABLE_PATH, _upstream, git, get_filtered_diff, fetch_upstream_branch
 from test_api_server import start_server
 import threading
 import time
@@ -130,7 +130,7 @@ for test in filter(lambda x: not x.get('disabled', False), tests):
                           test['db'],
                           payload,
                           partial(get_pr_diff, test),
-                          None,
+                          partial(fetch_upstream_branch, "master"),
                           step_callback=callback,
                           error_callback=error_callback)
     server.shutdown()
