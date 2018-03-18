@@ -83,7 +83,7 @@ def get_filtered_diff(path, commit, branch=None):
             if tries < 6 and branch:
                 # Wait 10 seconds, then try fetching the branch again
                 time.sleep(10)
-                fetch(path, branch)
+                fetch_upstream_branch(path, branch)
                 tries += 1
                 continue
             raise e
