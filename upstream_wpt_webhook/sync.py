@@ -351,7 +351,8 @@ def process_new_pr_contents(config, pr_db, pull_request, pr_diff, fetch_action, 
     pr_number = str(pull_request['number'])
     # Is this updating an existing pull request?
     if pr_number in pr_db:
-        if patch_contains_upstreamable_changes(pr_diff):
+        is_upstreamable = patch_contains_upstreamable_changes(pr_diff)
+        if is_upstreamable:
             # In case this is adding new upstreamable changes to a PR that was closed
             # due to a lack of upstreamable changes, force it to be reopened.
             # Github refuses to reopen a PR that had a branch force pushed, so be sure
@@ -369,6 +370,10 @@ def process_new_pr_contents(config, pr_db, pull_request, pr_diff, fetch_action, 
         comment_on_pr(pr_number,
                       '%s/web-platform-tests#%s' % (config['upstream_org'], pr_db[pr_number]),
                       extra_comment, steps)
+        if not is_upstreamable:
+            # Forget about the upstream PR. A new one will be opened if new upstremable
+            # changes are later added.
+            pr_db.pop(pr_number)
     elif patch_contains_upstreamable_changes(pr_diff):
         # Retrieve the set of commits that need to be transplanted.
         commits = fetch_upstreamable_commits(pull_request, fetch_action, steps)
@@ -392,11 +397,11 @@ def process_closed_pr(pr_db, pull_request, steps):
         # Since the upstreamable changes have now been merged locally, merge the
         # corresponding upstream PR.
         merge_upstream_pr(pr_db[pr_number], steps)
-        pr_db.pop(pr_number)
     else:
         # If a PR with upstreamable changes is closed without being merged, we
         # don't want to merge the changes upstream either.
         change_upstream_pr(pr_db[pr_number], 'closed', steps)
+    pr_db.pop(pr_number)
 
         
 def process_json_payload(config, pr_db, payload, diff_provider, fetch_action):
