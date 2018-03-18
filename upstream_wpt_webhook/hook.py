@@ -56,10 +56,10 @@ def fetch_upstream_branch(config, pull_request):
 def _webhook_impl(pr_db, dry_run):
     payload = request.form.get('payload', '{}')
     payload = json.loads(payload)
-    error_callback = partial(error_callback, config, payload) if not dry_run else None
+    error = partial(error_callback, config, payload) if not dry_run else None
     result = process_and_run_steps(config, pr_db, payload, get_pr_diff,
                                    partial(fetch_upstream_branch, config) if not dry_run else None,
-                                   error_callback=error_callback)
+                                   error_callback=error)
     if not result:
         return ('', 500)
 
