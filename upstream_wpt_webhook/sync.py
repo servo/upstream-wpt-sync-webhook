@@ -72,7 +72,7 @@ def git(*args, **kwargs):
         raise e
 
 
-def get_filtered_diff(path, commit, fetch=None):
+def get_filtered_diff(path, commit, branch=None):
     tries = 1
     while True:
         try:
@@ -80,18 +80,18 @@ def get_filtered_diff(path, commit, fetch=None):
             return git(["show", "--binary", "--format=%b", commit, '--',  UPSTREAMABLE_PATH],
                        cwd=path)
         except Exception as e:
-            if tries < 6 and fetch:
+            if tries < 6 and branch:
                 # Wait 10 seconds, then try fetching the branch again
                 time.sleep(10)
-                fetch()
+                fetch(path, branch)
                 tries += 1
                 continue
             raise e
 
 
-def fetch_upstream_branch(config, branch):
+def fetch_upstream_branch(path, branch):
     # Retrieve all of the commits from the upstream pull request
-    return git(["fetch", "origin", branch], cwd=config['servo_path'])
+    return git(["fetch", "origin", branch], cwd=path)
 
 
 class UpstreamStep(Step):
@@ -321,33 +321,34 @@ def patch_contains_upstreamable_changes(patch_contents):
 
 
 class FetchUpstreamableStep(Step):
-    def __init__(self, pull_request, fetch_action):
+    def __init__(self, pull_request, branch):
         Step.__init__(self, 'FetchUpstreamableStep')
         self.pull_request = pull_request
-        self.fetch_action = fetch_action
+        self.branch = branch
 
     def provides(self):
         self.commits = AsyncValue()
         return {'commits': self.commits}
 
     def run(self, config):
-        commits = _fetch_upstreamable_commits(config, self.pull_request, self.fetch_action)
+        commits = _fetch_upstreamable_commits(config, self.pull_request, self.branch)
         self.name += ':%d' % len(commits)
         self.commits.resolve(commits)
 
 
-def fetch_upstreamable_commits(pull_request, fetch_action, steps):
-    step = FetchUpstreamableStep(pull_request, fetch_action)
+def fetch_upstreamable_commits(pull_request, branch, steps):
+    step = FetchUpstreamableStep(pull_request, branch)
     steps += [step]
     return step.provides()['commits']
 
 
-def _fetch_upstreamable_commits(config, pull_request, fetch):
+def _fetch_upstreamable_commits(config, pull_request, branch):
     r = authenticated(config, 'GET', pull_request["commits_url"])
     commit_data = r.json()
     filtered_commits = []
+    fetch_upstream_branch(config['servo_path'], branch)
     for commit in commit_data:
-        diff = get_filtered_diff(config['servo_path'], commit['sha'], fetch)
+        diff = get_filtered_diff(config['servo_path'], commit['sha'], branch)
         if diff:
             # Create an object that contains everything necessary to transplant this
             # commit to another repository.
@@ -362,7 +363,7 @@ def _fetch_upstreamable_commits(config, pull_request, fetch):
 
 SERVO_PR_URL = "https://github.com/%s/servo/pull/%s"
 
-def process_new_pr_contents(config, pr_db, pull_request, pr_diff, fetch_action, steps):
+def process_new_pr_contents(config, pr_db, pull_request, pr_diff, branch, steps):
     pr_number = str(pull_request['number'])
     # Is this updating an existing pull request?
     if pr_number in pr_db:
@@ -374,7 +375,7 @@ def process_new_pr_contents(config, pr_db, pull_request, pr_diff, fetch_action, 
             # to do this first.
             change_upstream_pr(pr_db[pr_number], 'opened', steps)
             # Retrieve the set of commits that need to be transplanted.
-            commits = fetch_upstreamable_commits(pull_request, fetch_action, steps)
+            commits = fetch_upstreamable_commits(pull_request, branch, steps)
             # Push the relevant changes to the upstream branch.
             upstream(pr_number, commits, steps)
             extra_comment = 'Transplanted upstreamable changes to existing PR.'
@@ -391,7 +392,7 @@ def process_new_pr_contents(config, pr_db, pull_request, pr_diff, fetch_action, 
             pr_db.pop(pr_number)
     elif patch_contains_upstreamable_changes(pr_diff):
         # Retrieve the set of commits that need to be transplanted.
-        commits = fetch_upstreamable_commits(pull_request, fetch_action, steps)
+        commits = fetch_upstreamable_commits(pull_request, branch, steps)
         # Push the relevant changes to a new upstream branch.
         branch = upstream(pr_number, commits, steps)
         # TODO: extract the non-checklist/reviewable parts of the pull request body
@@ -419,7 +420,7 @@ def process_closed_pr(pr_db, pull_request, steps):
     pr_db.pop(pr_number)
 
         
-def process_json_payload(config, pr_db, payload, diff_provider, fetch_action):
+def process_json_payload(config, pr_db, payload, diff_provider, branch):
     pull_request = payload['pull_request']
     if NO_SYNC_SIGNAL in pull_request['body']:
         return []
@@ -427,7 +428,7 @@ def process_json_payload(config, pr_db, payload, diff_provider, fetch_action):
     steps = []
     if payload['action'] in ['opened', 'synchronize', 'reopened']:
         process_new_pr_contents(config, pr_db, pull_request, diff_provider(pull_request),
-                                fetch_action, steps)
+                                branch, steps)
     elif payload['action'] == 'closed':
         process_closed_pr(pr_db, pull_request, steps)
     return steps
@@ -447,11 +448,11 @@ def save_snapshot(payload, exception_info, pr_db, diff_provider):
     return name
 
 
-def process_and_run_steps(config, pr_db, payload, provider, fetch_action,
+def process_and_run_steps(config, pr_db, payload, provider, branch,
                           step_callback=None, error_callback=None):
     orig_pr_db = copy.deepcopy(pr_db)
     try:
-        steps = process_json_payload(config, pr_db, payload, provider, fetch_action)
+        steps = process_json_payload(config, pr_db, payload, provider, branch)
         for step in steps:
             step.run(config)
             if step_callback:

@@ -55,8 +55,7 @@ def _webhook_impl(pr_db, dry_run):
         branch_name = "master"
     else:
         branch_name = "pull/%s/head" % payload["pull_request"]["number"]
-    result = process_and_run_steps(config, pr_db, payload, get_pr_diff,
-                                   partial(fetch_upstream_branch, branch_name),
+    result = process_and_run_steps(config, pr_db, payload, get_pr_diff, branch_name,
                                    error_callback=error)
     if not result:
         return ('', 500)
