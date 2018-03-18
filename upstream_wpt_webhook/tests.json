@@ -11,6 +11,30 @@
         ]
     },
     {
+        "name": "open new upstreamable PR with move into wpt",
+        "payload": "new_pr.json",
+        "diff": "move-into-wpt.diff",
+        "db": {},
+        "expected": [
+            "FetchUpstreamableStep:1",
+            "UpstreamStep:1:servo_export_18746",
+            "OpenUpstreamStep",
+            "CommentStep:Opened new PR"
+        ]
+    },
+    {
+        "name": "open new upstreamable PR with move out of wpt",
+        "payload": "new_pr.json",
+        "diff": "move-out-of-wpt.diff",
+        "db": {},
+        "expected": [
+            "FetchUpstreamableStep:1",
+            "UpstreamStep:1:servo_export_18746",
+            "OpenUpstreamStep",
+            "CommentStep:Opened new PR"
+        ]
+    },
+    {
         "name": "open new upstreamable PR, no-sync",
         "payload": "new_pr_no_sync.json",
         "db": {},
