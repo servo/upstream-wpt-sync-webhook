@@ -73,7 +73,7 @@ def git(*args, **kwargs):
 
 def get_filtered_diff(path, commit):
     # Retrieve the diff of any changes to files that are relevant
-    return git(["show", "--format=%b", commit, '--', UPSTREAMABLE_PATH],
+    return git(["show", "--binary", "--format=%b", commit, '--',  UPSTREAMABLE_PATH],
                cwd=path)
 
 
