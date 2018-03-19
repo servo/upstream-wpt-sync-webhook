@@ -23,6 +23,18 @@
         ]
     },
     {
+        "name": "open new upstreamable PR with move into wpt, non-ascii author",
+        "payload": "new_pr.json",
+        "diff": [["move-into-wpt.diff", "Fernando Jiménez Moreno", "foo@bar.com", "ééééé"]],
+        "db": {},
+        "expected": [
+            "FetchUpstreamableStep:1",
+            "UpstreamStep:1:servo_export_18746",
+            "OpenUpstreamStep",
+            "CommentStep:Opened new PR"
+        ]
+    },
+    {
         "name": "open new upstreamable PR with move out of wpt",
         "payload": "new_pr.json",
         "diff": "move-out-of-wpt.diff",

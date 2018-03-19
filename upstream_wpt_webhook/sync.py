@@ -95,10 +95,11 @@ def fetch_upstream_branch(path, branch):
 
 
 class UpstreamStep(Step):
-    def __init__(self, servo_pr_number, commits):
+    def __init__(self, servo_pr_number, commits, pre_commit_callback):
         Step.__init__(self, 'UpstreamStep')
         self.servo_pr_number = servo_pr_number
         self.commits = commits
+        self.pre_commit_callback = pre_commit_callback
 
     def provides(self):
         self.branch = AsyncValue()
@@ -106,17 +107,17 @@ class UpstreamStep(Step):
 
     def run(self, config):
         commits = self.commits.value()
-        branch = _upstream(config, self.servo_pr_number, commits)
+        branch = _upstream(config, self.servo_pr_number, commits, self.pre_commit_callback)
         self.branch.resolve(branch)
         self.name += ':%d:%s' % (len(commits), branch)
 
 
-def upstream(servo_pr_number, commits, steps):
-    step = UpstreamStep(servo_pr_number, commits)
+def upstream(servo_pr_number, commits, pre_commit_callback, steps):
+    step = UpstreamStep(servo_pr_number, commits, pre_commit_callback)
     steps += [step]
     return step.provides()['branch']
 
-def _upstream(config, servo_pr_number, commits, pre_delete_callback=None):
+def _upstream(config, servo_pr_number, commits, pre_commit_callback, pre_delete_callback=None):
     BRANCH_NAME = "servo_export_%s" % servo_pr_number
 
     def upstream_inner(config, commits):
@@ -150,6 +151,9 @@ def _upstream(config, servo_pr_number, commits, pre_delete_callback=None):
                 cwd=config['wpt_path'],
                 env={'GIT_COMMITTER_NAME': 'Servo WPT Sync',
                      'GIT_COMMITTER_EMAIL': 'josh+wptsync@joshmatthews.net'})
+
+            if pre_commit_callback:
+                pre_commit_callback()
 
         remote_url = "https://{user}:{token}@github.com/{user}/web-platform-tests.git".format(
             user=config['username'],
@@ -353,9 +357,9 @@ def _fetch_upstreamable_commits(config, pull_request, branch):
             # Create an object that contains everything necessary to transplant this
             # commit to another repository.
             filtered_commits += [{
-                'author': "%s <%s>" % (commit['commit']['author']['name'].encode('utf-8'),
-                                       commit['commit']['author']['email'].encode('utf-8')),
-                'message': commit['commit']['message'].encode('utf-8'),
+                'author': "%s <%s>" % (commit['commit']['author']['name'],
+                                       commit['commit']['author']['email']),
+                'message': commit['commit']['message'],
                 'diff': diff,
             }]
     return filtered_commits
@@ -363,7 +367,7 @@ def _fetch_upstreamable_commits(config, pull_request, branch):
 
 SERVO_PR_URL = "https://github.com/%s/servo/pull/%s"
 
-def process_new_pr_contents(config, pr_db, pull_request, pr_diff, branch, steps):
+def process_new_pr_contents(config, pr_db, pull_request, pr_diff, branch, pre_commit_callback, steps):
     pr_number = str(pull_request['number'])
     # Is this updating an existing pull request?
     if pr_number in pr_db:
@@ -377,7 +381,7 @@ def process_new_pr_contents(config, pr_db, pull_request, pr_diff, branch, steps)
             # Retrieve the set of commits that need to be transplanted.
             commits = fetch_upstreamable_commits(pull_request, branch, steps)
             # Push the relevant changes to the upstream branch.
-            upstream(pr_number, commits, steps)
+            upstream(pr_number, commits, pre_commit_callback, steps)
             extra_comment = 'Transplanted upstreamable changes to existing PR.'
         else:
             # Close the upstream PR, since would contain no changes otherwise.
@@ -394,7 +398,7 @@ def process_new_pr_contents(config, pr_db, pull_request, pr_diff, branch, steps)
         # Retrieve the set of commits that need to be transplanted.
         commits = fetch_upstreamable_commits(pull_request, branch, steps)
         # Push the relevant changes to a new upstream branch.
-        branch = upstream(pr_number, commits, steps)
+        branch = upstream(pr_number, commits, pre_commit_callback, steps)
         # TODO: extract the non-checklist/reviewable parts of the pull request body
         #       and add it to the upstream body.
         body = "Reviewed in %s." % (SERVO_PR_URL % (config['servo_org'], pr_number))
@@ -420,7 +424,7 @@ def process_closed_pr(pr_db, pull_request, steps):
     pr_db.pop(pr_number)
 
         
-def process_json_payload(config, pr_db, payload, diff_provider, branch):
+def process_json_payload(config, pr_db, payload, diff_provider, branch, pre_commit_callback):
     pull_request = payload['pull_request']
     if NO_SYNC_SIGNAL in pull_request['body']:
         return []
@@ -428,7 +432,7 @@ def process_json_payload(config, pr_db, payload, diff_provider, branch):
     steps = []
     if payload['action'] in ['opened', 'synchronize', 'reopened']:
         process_new_pr_contents(config, pr_db, pull_request, diff_provider(pull_request),
-                                branch, steps)
+                                branch, pre_commit_callback, steps)
     elif payload['action'] == 'closed':
         process_closed_pr(pr_db, pull_request, steps)
     return steps
@@ -449,10 +453,10 @@ def save_snapshot(payload, exception_info, pr_db, diff_provider):
 
 
 def process_and_run_steps(config, pr_db, payload, provider, branch,
-                          step_callback=None, error_callback=None):
+                          step_callback=None, error_callback=None, pre_commit_callback=None):
     orig_pr_db = copy.deepcopy(pr_db)
     try:
-        steps = process_json_payload(config, pr_db, payload, provider, branch)
+        steps = process_json_payload(config, pr_db, payload, provider, branch, pre_commit_callback)
         for step in steps:
             step.run(config)
             if step_callback:

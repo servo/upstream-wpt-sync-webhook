@@ -36,14 +36,16 @@ def commits():
     def make_commit(diff_file):
         this_dir = os.path.abspath(os.path.dirname(__file__))
 
+        diff_file, author, email, message = diff_file
+
         # Temporarily apply the diff to make a commit object that can be retrieved later
         git(["apply", os.path.join(this_dir, 'tests', diff_file)],
             cwd=config['servo_path'])
         git(["add", "."], cwd=config['servo_path'])
-        git(["commit", "-a", "-m", "tmp", "--author", "test <test@test.test>"],
+        git(["commit", "-a", "-m", message, "--author", "%s <%s>" % (author, email)],
             cwd=config['servo_path'],
-            env={'GIT_COMMITTER_NAME': 'test',
-                 'GIT_COMMITTER_EMAIL': 'test@test.test'})
+            env={'GIT_COMMITTER_NAME': author,
+                 'GIT_COMMITTER_EMAIL': email})
         output = git(["log", "-1", "--oneline"], cwd=config['servo_path'])
         sha = output.split()[0]
         config['upstreamable'][sha] = (get_filtered_diff(config['servo_path'], sha) == '')
@@ -55,10 +57,10 @@ def commits():
             "sha": sha,
             "commit": {
                 "author": {
-                    "name": "foo",
-                    "email": "foo@foo",
+                    "name": author,
+                    "email": email,
                 },
-                "message": "tmp",
+                "message": message,
             },
         }
     return list(map(lambda x: make_commit(x), config['diff_files']))

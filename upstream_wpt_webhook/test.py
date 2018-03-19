@@ -51,7 +51,7 @@ for test in git_tests:
         with open(commit['diff']) as f:
             commit['diff'] = f.read()
     pr_number = test['pr_number']
-    _upstream(config, pr_number, test['commits'], partial(git_callback, test))
+    _upstream(config, pr_number, test['commits'], None, partial(git_callback, test))
 print("Successfully ran git upstreaming tests.")
 
 def wait_for_server(port):
@@ -82,18 +82,24 @@ class APIServerThread(object):
 
 
 def pr_diff_files(test, pull_request):
+    def fake_commit_data(filename):
+        return [filename, "tmp author", "tmp@tmp.com", "tmp commit message"]
+
     if 'diff' in test:
         if isinstance(test['diff'], list):
-            return test['diff']
-        return [test['diff']]
-    return [str(pull_request['number']) + '.diff']
+            return list(map(lambda d: fake_commit_data(d) if not isinstance(d, list) else d,
+                            test['diff']))
+        diff_file = test['diff']
+    else:
+        diff_file = str(pull_request['number']) + '.diff'
+    return [fake_commit_data(diff_file)]
 
 
 def get_pr_diff(test, pull_request):
     diff_files = pr_diff_files(test, pull_request)
     diffs = []
-    for diff_file in diff_files:
-        with open(os.path.join('tests', diff_file)) as f:
+    for diff_file_props in diff_files:
+        with open(os.path.join('tests', diff_file_props[0])) as f:
             diffs += [f.read()]
     return '\n'.join(diffs)
 
@@ -126,15 +132,23 @@ for test in filter(lambda x: not x.get('disabled', False), tests):
             print(f.read())
         import shutil
         shutil.rmtree(dir_name)
-    process_and_run_steps(config,
-                          test['db'],
-                          payload,
-                          partial(get_pr_diff, test),
-                          "master",
-                          step_callback=callback,
-                          error_callback=error_callback)
+    def pre_commit_callback(commits_to_check):
+        commit = commits_to_check.pop(0)
+        last_commit = git(["log", "-1", "--format=%an %ae %s"], cwd=config['wpt_path']).rstrip()
+        expected = "%s %s %s" % (commit[1], commit[2], commit[3])
+        assert last_commit == expected, "%s != %s" % (last_commit, expected)
+    commits = pr_diff_files(test, payload['pull_request'])
+    result = process_and_run_steps(config,
+                                   test['db'],
+                                   payload,
+                                   partial(get_pr_diff, test),
+                                   "master",
+                                   step_callback=callback,
+                                   error_callback=error_callback,
+                                   pre_commit_callback=partial(pre_commit_callback, commits))
     server.shutdown()
-    if all(map(lambda values: values[0] == values[1] if ':' not in values[1] else values[0].startswith(values[1]),
+    if result and all(map(lambda values: values[0] == values[1]
+                          if ':' not in values[1] else values[0].startswith(values[1]),
                zip(executed, test['expected']))):
         print('passed')
     else:
