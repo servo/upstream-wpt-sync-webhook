@@ -1,6 +1,7 @@
 import copy
 from functools import partial
 import json
+import locale
 import os
 import requests
 import sys
@@ -147,7 +148,8 @@ def _upstream(config, servo_pr_number, commits, pre_commit_callback, pre_delete_
 
             # Commit the changes
             git(["add", "--all"], cwd=config['wpt_path'])
-            git(["commit", "--message", commit['message'], "--author", commit['author']],
+            git(["commit", "--message", commit['message'].encode(locale.getpreferredencoding()),
+                 "--author", commit['author'].encode(locale.getpreferredencoding())],
                 cwd=config['wpt_path'],
                 env={'GIT_COMMITTER_NAME': 'Servo WPT Sync',
                      'GIT_COMMITTER_EMAIL': 'josh+wptsync@joshmatthews.net'})

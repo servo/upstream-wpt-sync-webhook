@@ -1,7 +1,9 @@
 from flask import Flask, request, jsonify, render_template, make_response, abort
 import json
+import locale
 import os
 from sync import UPSTREAMABLE_PATH, git, get_filtered_diff
+import tempfile
 
 try:
     xrange
@@ -42,9 +44,11 @@ def commits():
         git(["apply", os.path.join(this_dir, 'tests', diff_file)],
             cwd=config['servo_path'])
         git(["add", "."], cwd=config['servo_path'])
-        git(["commit", "-a", "-m", message, "--author", "%s <%s>" % (author, email)],
+        git(["commit", "-a", "--author",
+             "%s <%s>" % (author.encode(locale.getpreferredencoding()), email),
+             "-m", message.encode(locale.getpreferredencoding())],
             cwd=config['servo_path'],
-            env={'GIT_COMMITTER_NAME': author,
+            env={'GIT_COMMITTER_NAME': author.encode(locale.getpreferredencoding()),
                  'GIT_COMMITTER_EMAIL': email})
         output = git(["log", "-1", "--oneline"], cwd=config['servo_path'])
         sha = output.split()[0]
