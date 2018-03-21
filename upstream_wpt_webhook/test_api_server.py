@@ -45,8 +45,8 @@ def commits():
             cwd=config['servo_path'])
         git(["add", "."], cwd=config['servo_path'])
         git(["commit", "-a", "--author",
-             "%s <%s>" % (author.encode(locale.getpreferredencoding()), email),
-             "-m", message.encode(locale.getpreferredencoding())],
+             "%s <%s>" % (author, email),
+             "-m", message],
             cwd=config['servo_path'],
             env={'GIT_COMMITTER_NAME': author.encode(locale.getpreferredencoding()),
                  'GIT_COMMITTER_EMAIL': email})
