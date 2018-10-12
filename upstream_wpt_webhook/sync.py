@@ -219,7 +219,7 @@ def merge_upstream_pr(upstream, steps):
 def _merge_upstream_pr(config, upstream):
     modify_upstream_pr_labels(config, 'DELETE', ['do not merge yet'], upstream)
     data = {
-        'merge_method': 'merge',
+        'merge_method': 'rebase',
     }
     return authenticated(config,
                          'PUT',
