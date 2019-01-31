@@ -217,7 +217,7 @@ def merge_upstream_pr(upstream, steps):
     steps += [MergeUpstreamStep(upstream)]
 
 def _merge_upstream_pr(config, upstream):
-    modify_upstream_pr_labels(config, 'DELETE', ['do not merge yet'], upstream)
+    remove_upstream_pr_label(config, 'do not merge yet', str(upstream))
     data = {
         'merge_method': 'rebase',
     }
@@ -225,6 +225,13 @@ def _merge_upstream_pr(config, upstream):
                          'PUT',
                          upstream_pulls(config) + '/' + str(upstream) + '/merge',
                          json=data)
+
+
+def remove_upstream_pr_label(config, label, pr_number):
+    authenticated(config,
+                  'DELETE',
+                  ('repos/%s/test/issues/%s/labels/%s' %
+                   (config['upstream_org'], pr_number, label)))
 
 
 def modify_upstream_pr_labels(config, method, labels, pr_number):
@@ -424,7 +431,7 @@ def process_closed_pr(pr_db, pull_request, steps):
         change_upstream_pr(pr_db[pr_number], 'closed', steps)
     pr_db.pop(pr_number)
 
-        
+
 def process_json_payload(config, pr_db, payload, diff_provider, branch, pre_commit_callback):
     pull_request = payload['pull_request']
     if NO_SYNC_SIGNAL in pull_request['body']:
