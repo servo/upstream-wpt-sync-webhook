@@ -182,21 +182,23 @@ def _upstream(config, servo_pr_number, commits, pre_commit_callback, pre_delete_
 
 
 class ChangeUpstreamStep(Step):
-    def __init__(self, upstream, state):
-        Step.__init__(self, 'ChangeUpstreamStep:%s:%s' % (upstream, state) )
+    def __init__(self, upstream, state, title):
+        Step.__init__(self, 'ChangeUpstreamStep:%s:%s:%s' % (upstream, state, title) )
         self.upstream = upstream
         self.state = state
+        self.title = title
 
     def run(self, config):
-        _change_upstream_pr(config, self.upstream, self.state)
+        _change_upstream_pr(config, self.upstream, self.state, self.title)
 
 
-def change_upstream_pr(upstream, state, steps):
-    steps += [ChangeUpstreamStep(upstream, state)]
+def change_upstream_pr(upstream, state, title, steps):
+    steps += [ChangeUpstreamStep(upstream, state, title)]
 
-def _change_upstream_pr(config, upstream, state):
+def _change_upstream_pr(config, upstream, state, title):
     data = {
-        'state': state
+        'state': state,
+        'title': title
     }
     return authenticated(config,
                          'PATCH',
@@ -385,7 +387,7 @@ def process_new_pr_contents(config, pr_db, pull_request, pr_diff, branch, pre_co
             # due to a lack of upstreamable changes, force it to be reopened.
             # Github refuses to reopen a PR that had a branch force pushed, so be sure
             # to do this first.
-            change_upstream_pr(pr_db[pr_number], 'opened', steps)
+            change_upstream_pr(pr_db[pr_number], 'opened', pull_request['title'], steps)
             # Retrieve the set of commits that need to be transplanted.
             commits = fetch_upstreamable_commits(pull_request, branch, steps)
             # Push the relevant changes to the upstream branch.
@@ -393,7 +395,7 @@ def process_new_pr_contents(config, pr_db, pull_request, pr_diff, branch, pre_co
             extra_comment = 'Transplanted upstreamable changes to existing PR.'
         else:
             # Close the upstream PR, since would contain no changes otherwise.
-            change_upstream_pr(pr_db[pr_number], 'closed', steps)
+            change_upstream_pr(pr_db[pr_number], 'closed', pull_request['title'], steps)
             extra_comment = 'No upstreamable changes; closed existing PR.'
         comment_on_pr(pr_number,
                       '%s/web-platform-tests#%s' % (config['upstream_org'], pr_db[pr_number]),
@@ -414,6 +416,17 @@ def process_new_pr_contents(config, pr_db, pull_request, pr_diff, branch, pre_co
         upstream_url = open_upstream_pr(pr_db, pr_number, pull_request['title'], config['username'], branch, body, steps)
         # Leave a comment to the new pull request in the original pull request.
         comment_on_pr(pr_number, upstream_url, 'Opened new PR for upstreamable changes.', steps)
+
+
+def change_upstream_pr_title(config, pr_db, pull_request, steps):
+    pr_number = str(pull_request['number'])
+    if pr_number in pr_db:
+        change_upstream_pr(pr_db[pr_number], 'open', pull_request['title'], steps)
+
+        extra_comment = 'PR title changed; changed existing PR.'
+        comment_on_pr(pr_number,
+                      '%s/web-platform-tests#%s' % (config['upstream_org'], pr_db[pr_number]),
+                      extra_comment, steps)
 
 
 def process_closed_pr(pr_db, pull_request, steps):
@@ -441,6 +454,8 @@ def process_json_payload(config, pr_db, payload, diff_provider, branch, pre_comm
     if payload['action'] in ['opened', 'synchronize', 'reopened']:
         process_new_pr_contents(config, pr_db, pull_request, diff_provider(pull_request),
                                 branch, pre_commit_callback, steps)
+    elif payload['action'] == 'edited' and 'title' in payload['changes']:
+        change_upstream_pr_title(config, pr_db, pull_request, steps)
     elif payload['action'] == 'closed':
         process_closed_pr(pr_db, pull_request, steps)
     return steps
