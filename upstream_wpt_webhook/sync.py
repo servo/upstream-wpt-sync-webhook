@@ -230,7 +230,7 @@ def _merge_upstream_pr(config, upstream):
 def remove_upstream_pr_label(config, label, pr_number):
     authenticated(config,
                   'DELETE',
-                  ('repos/%s/test/issues/%s/labels/%s' %
+                  ('repos/%s/web-platform-tests/issues/%s/labels/%s' %
                    (config['upstream_org'], pr_number, label)))
 
 
