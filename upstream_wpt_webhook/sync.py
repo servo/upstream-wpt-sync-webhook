@@ -441,7 +441,7 @@ def process_closed_pr(pr_db, pull_request, steps):
     else:
         # If a PR with upstreamable changes is closed without being merged, we
         # don't want to merge the changes upstream either.
-        change_upstream_pr(pr_db[pr_number], 'closed', steps)
+        change_upstream_pr(pr_db[pr_number], 'closed', pull_request['title'], steps)
     pr_db.pop(pr_number)
 
 
