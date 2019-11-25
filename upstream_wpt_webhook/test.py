@@ -66,8 +66,9 @@ def wait_for_server(port):
             time.sleep(0.5)
 
 class APIServerThread(object):
-    def __init__(self, config):
-        self.port = 9000
+    def __init__(self, config, port):
+        #print('Starting API server on port ' + str(port))
+        self.port = port
         thread = threading.Thread(target=self.run, args=(config,))
         thread.daemon = True
         thread.start()
@@ -86,6 +87,7 @@ class APIServerThread(object):
                 time.sleep(0.5)
             except:
                 break
+        #print('Stopped API server on port ' + str(self.port))
 
 def pr_diff_files(test, pull_request):
     def fake_commit_data(filename):
@@ -121,11 +123,14 @@ def make_api_config(test, payload, servo_path):
     api_config.update(test.get('api_config', {}))
     return api_config
 
-for test in filter(lambda x: not x.get('disabled', False), tests):
+for (i, test) in enumerate(filter(lambda x: not x.get('disabled', False), tests)):
     with open(os.path.join('tests', test['payload'])) as f:
         payload = json.loads(f.read())
 
-    server = APIServerThread(make_api_config(test, payload, config['servo_path']))
+    port = 9000 + i
+    config['api'] = 'http://localhost:' + str(port)
+    config['override_host'] = config['api']
+    server = APIServerThread(make_api_config(test, payload, config['servo_path']), port)
 
     print(test['name'] + ':'),
     executed = []
@@ -166,6 +171,7 @@ for test in filter(lambda x: not x.get('disabled', False), tests):
 
 class ServerThread(object):
     def __init__(self, config):
+        #print('Starting server thread on port ' + str(config['port']))
         self.port = config['port']
         thread = threading.Thread(target=self.run, args=(config,))
         thread.daemon = True
@@ -178,6 +184,7 @@ class ServerThread(object):
     def shutdown(self):
         r = requests.post('http://localhost:%d/shutdown' % self.port)
         assert(r.status_code == 204)
+        #print('Stopped server thread on port ' + str(self.port))
 
 print('testing server hook with /test')
 
@@ -186,12 +193,15 @@ for (i, test) in enumerate(tests):
 
     this_config = copy.deepcopy(config)
     this_config['port'] += i
+    port += i
+    this_config['api'] = 'http://localhost:' + str(port)
+    this_config['override_host'] = this_config['api']
     server = ServerThread(this_config)
 
     with open(os.path.join('tests', test['payload'])) as f:
         payload = f.read()
 
-    api_server = APIServerThread(make_api_config(test, json.loads(payload), config['servo_path']))
+    api_server = APIServerThread(make_api_config(test, json.loads(payload), config['servo_path']), port)
 
     r = requests.post('http://localhost:' + str(this_config['port']) + '/test', data={'payload': payload})
     if r.status_code != 204:
