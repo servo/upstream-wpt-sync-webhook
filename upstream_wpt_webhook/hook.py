@@ -42,15 +42,18 @@ def get_pr_diff(pull_request):
     return requests.get(pull_request["diff_url"]).text
 
 ERROR_BODY = "Error syncing changes upstream. Logs saved in %s."
+UPSTREAM_ERROR_BODY = "Error merging pull request automatically. Please merge manually after addressing any CI issues."
 
-def error_callback(config, payload, dir_name):
+def error_callback(config, payload, pr_db, dir_name):
     _do_comment_on_pr(config, payload["pull_request"]["number"], ERROR_BODY % dir_name)
+    if 'action' in payload and payload['action'] == 'closed' and payload['pull_request']['merged']:
+        _do_comment_on_pr(config, pr_db[payload["pull_request"]["number"]], UPSTREAM_ERROR_BODY)
 
 
 def _webhook_impl(pr_db, dry_run):
     payload = request.form.get('payload', '{}')
     payload = json.loads(payload)
-    error = partial(error_callback, config, payload) if not dry_run else None
+    error = partial(error_callback, config, payload, pr_db) if not dry_run else None
     if dry_run:
         branch_name = "master"
     else:
