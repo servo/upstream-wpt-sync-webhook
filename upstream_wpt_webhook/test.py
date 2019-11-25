@@ -79,7 +79,13 @@ class APIServerThread(object):
     def shutdown(self):
         r = requests.post('http://localhost:%d/shutdown' % self.port)
         assert(r.status_code == 204)
-
+        # Wait for the server to stop responding to ping requests
+        while True:
+            try:
+                r = requests.get('http://localhost:' + str(port) + '/ping')
+                time.sleep(0.5)
+            except:
+                break
 
 def pr_diff_files(test, pull_request):
     def fake_commit_data(filename):
