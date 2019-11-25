@@ -96,7 +96,7 @@ def catch_all(path):
         return ('', 204)
     elif '/pulls/' in path:
         return ('', 204)
-    elif path.endswith('labels'):
+    elif '/labels/' in path or path.endswith('/labels'):
         return ('', 204)
     elif path.endswith('comments'):
         return ('', 204)
