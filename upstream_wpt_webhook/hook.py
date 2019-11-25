@@ -6,7 +6,7 @@ sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
 from flask import Flask, request, jsonify, render_template, make_response, abort
 from functools import partial
-from sync import process_and_run_steps, _do_comment_on_pr, git, UPSTREAMABLE_PATH, fetch_upstream_branch
+from sync import process_and_run_steps, _do_comment_on_pr, modify_upstream_pr_labels, git, UPSTREAMABLE_PATH, fetch_upstream_branch
 import json
 import requests
 
@@ -47,7 +47,9 @@ UPSTREAM_ERROR_BODY = "Error merging pull request automatically. Please merge ma
 def error_callback(config, payload, pr_db, dir_name):
     _do_comment_on_pr(config, payload["pull_request"]["number"], ERROR_BODY % dir_name)
     if 'action' in payload and payload['action'] == 'closed' and payload['pull_request']['merged']:
-        _do_comment_on_pr(config, pr_db[payload["pull_request"]["number"]], UPSTREAM_ERROR_BODY)
+        pr_number = pr_db[payload["pull_request"]["number"]]
+        modify_upstream_pr_labels(config, 'POST', ['stale-sevo-export'], pr_number)
+        _do_comment_on_pr(config, pr_number, UPSTREAM_ERROR_BODY)
 
 
 def _webhook_impl(pr_db, dry_run):
