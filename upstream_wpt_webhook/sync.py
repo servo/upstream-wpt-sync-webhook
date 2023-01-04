@@ -447,7 +447,6 @@ def process_closed_pr(pr_db, pull_request, steps):
 
 def process_json_payload(config, pr_db, payload, diff_provider, branch, pre_commit_callback):
     pull_request = payload['pull_request']
-    body 
     if NO_SYNC_SIGNAL in pull_request.get('body', ''):
         return []
 
