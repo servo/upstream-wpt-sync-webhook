@@ -10,8 +10,9 @@ To operate, a `config.json` file is required that looks like this:
     "servo_token": "github token allowing access to w3c/web-platform-tests and servo/servo",
     "username": "user",
     "wpt_path": "relative/path/to/web-platform-tests/clone",
-    "upstream_org": "w3c",
-    "servo_org": "servo",
+    "servo_repo": "servo/servo",
+    "wpt_repo": "web-platform-tests/wpt",
+    "downstream_wpt_repo": "user/wpt",
     "port": 5000,
 }
 ```

@@ -32,8 +32,11 @@ def read_config():
         assert 'username' in config
         assert 'servo_path' in config
         assert 'wpt_path' in config
-        assert 'upstream_org' in config
-        assert 'servo_org' in config
+
+        assert 'servo_repo' in config
+        assert 'wpt_repo' in config
+        assert 'downstream_wpt_repo' in config
+
         assert 'port' in config
         assert 'api' in config
         return config

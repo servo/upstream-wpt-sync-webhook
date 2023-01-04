@@ -15,19 +15,21 @@ import time
 import tempfile
 
 base_wpt_dir = tempfile.mkdtemp()
-git(["clone", "--depth=1", "https://github.com/jdm/web-platform-tests-mock.git"], cwd=base_wpt_dir)
-git(["clone", "--depth=1", "https://github.com/jdm/servo-mock.git"], cwd=base_wpt_dir)
+
+git(["clone", "--depth=1", f"https://github.com/jdm/web-platform-tests-mock.git", "wpt-mock"], cwd=base_wpt_dir)
+git(["clone", "--depth=1", f"https://github.com/jdm/servo-mock.git", "servo-mock"], cwd=base_wpt_dir)
 
 config = {
-    'servo_org': 'servo',
+    'servo_repo': 'servo/servo',
+    'wpt_repo': 'wpt/wpt',
+    'downstream_wpt_repo': 'servo-wpt-sync/wpt',
     'username': 'servo-wpt-sync',
-    'upstream_org': 'jdm',
     'port': 5000,
     'token': '',
     'api': 'http://localhost:9000',
     'override_host': 'http://localhost:9000',
     'suppress_force_push': True,
-    'wpt_path': os.path.join(base_wpt_dir, "web-platform-tests-mock"),
+    'wpt_path': os.path.join(base_wpt_dir, "wpt-mock"),
     'servo_path': os.path.join(base_wpt_dir, "servo-mock"),
 }
 

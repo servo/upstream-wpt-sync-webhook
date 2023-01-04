@@ -12,11 +12,21 @@ try:
 except ImportError:
     from urllib import parse as urlparse
 
+GITHUB_PR_URL = "https://github.com/%s/pull/%s"
+GITHUB_COMMENTS_URL = "repos/%s/issues/%s/comments"
+GITHUB_PULLS_URL = "repos/%s/pulls"
 UPSTREAMABLE_PATH = 'tests/wpt/web-platform-tests/'
 NO_SYNC_SIGNAL = '[no-wpt-sync]'
 
 def upstream_pulls(config):
-    return "repos/%s/web-platform-tests/pulls" % config['upstream_org']
+    return GITHUB_PULLS_URL % config['wpt_repo']
+
+def branch_head_for_upstream(config, branch):
+    downstream_wpt_org = config['downstream_wpt_repo'].split('/')[0]
+    if downstream_wpt_org != config['wpt_repo'].split('/')[0]:
+        return f"{downstream_wpt_org}:{branch}"
+    else:
+        return branch
 
 class Step:
     def __init__(self, name):
@@ -125,14 +135,15 @@ def _upstream(config, servo_pr_number, commits, pre_commit_callback, pre_delete_
         STRIP_COUNT = UPSTREAMABLE_PATH.count('/') + 1
 
         # Ensure WPT clone is up to date.
-        git(["checkout", "master"], cwd=config['wpt_path'])
-        git(["fetch", "origin", "master"], cwd=config['wpt_path'])
-        git(["reset", "--hard", "origin/master"], cwd=config['wpt_path'])
+        wpt_path = config['wpt_path']
+        git(["checkout", "master"], cwd=wpt_path)
+        git(["fetch", "origin", "master"], cwd=wpt_path)
+        git(["reset", "--hard", "origin/master"], cwd=wpt_path)
 
         # Create a new branch with a unique name that is consistent between updates of the same PR
-        git(["checkout", "-b", BRANCH_NAME], cwd=config['wpt_path'])
+        git(["checkout", "-b", BRANCH_NAME], cwd=wpt_path)
 
-        patch_path = os.path.join(config['wpt_path'], PATCH_FILE)
+        patch_path = os.path.join(wpt_path, PATCH_FILE)
 
         for commit in commits:
             # Export the current diff to a file
@@ -140,30 +151,31 @@ def _upstream(config, servo_pr_number, commits, pre_commit_callback, pre_delete_
                 f.write(commit['diff'])
 
             # Apply the filtered changes
-            git(["apply", PATCH_FILE, "-p", str(STRIP_COUNT)], cwd=config['wpt_path'])
+            git(["apply", PATCH_FILE, "-p", str(STRIP_COUNT)], cwd=wpt_path)
 
             # Ensure the patch file is not added with the other changes.
             os.remove(patch_path)
 
             # Commit the changes
-            git(["add", "--all"], cwd=config['wpt_path'])
+            git(["add", "--all"], cwd=wpt_path)
             git(["commit", "--message", commit['message'],
                  "--author", commit['author']],
-                cwd=config['wpt_path'],
+                cwd=wpt_path,
                 env={'GIT_COMMITTER_NAME': 'Servo WPT Sync',
                      'GIT_COMMITTER_EMAIL': 'josh+wptsync@joshmatthews.net'})
 
             if pre_commit_callback:
                 pre_commit_callback()
 
-        remote_url = "https://{user}:{token}@github.com/{user}/web-platform-tests.git".format(
-            user=config['username'],
-            token=config['token'],
-        )
-
+        # Push the branch upstream (forcing to overwrite any existing changes)
         if not config.get('suppress_force_push', False):
-            # Push the branch upstream (forcing to overwrite any existing changes)
+            remote_url = "https://{user}:{token}@github.com/{repo}.git".format(
+                user=config['username'],
+                token=config['token'],
+                repo=config['downstream_wpt_repo'],
+            )
             git(["push", "-f", remote_url, BRANCH_NAME], cwd=config['wpt_path'])
+
         return BRANCH_NAME
 
     try:
@@ -232,25 +244,24 @@ def _merge_upstream_pr(config, upstream):
 def remove_upstream_pr_label(config, label, pr_number):
     authenticated(config,
                   'DELETE',
-                  ('repos/%s/web-platform-tests/issues/%s/labels/%s' %
-                   (config['upstream_org'], pr_number, label)))
+                  ('repos/%s/issues/%s/labels/%s' %
+                   (config['wpt_repo'], pr_number, label)))
 
 
 def modify_upstream_pr_labels(config, method, labels, pr_number):
     authenticated(config,
                   method,
-                  ('repos/%s/web-platform-tests/issues/%s/labels' %
-                   (config['upstream_org'], pr_number)),
+                  ('repos/%s/issues/%s/labels' %
+                   (config['wpt_repo'], pr_number)),
                   json=labels)
 
 
 class OpenUpstreamStep(Step):
-    def __init__(self, pr_db, pr_number, title, source_org, branch, body):
+    def __init__(self, pr_db, pr_number, title, branch, body):
         Step.__init__(self, 'OpenUpstreamStep')
         self.pr_db = pr_db
         self.pr_number = pr_number
         self.title = title
-        self.source_org = source_org
         self.branch = branch
         self.body = body
 
@@ -263,21 +274,20 @@ class OpenUpstreamStep(Step):
                                    self.pr_db,
                                    self.pr_number,
                                    self.title,
-                                   self.source_org,
                                    self.branch.value(),
                                    self.body)
         self.new_pr_url.resolve(pr_url)
 
 
-def open_upstream_pr(pr_db, pr_number, title, source_org, branch, body, steps):
-    step = OpenUpstreamStep(pr_db, pr_number, title, source_org, branch, body)
+def open_upstream_pr(pr_db, pr_number, title, branch, body, steps):
+    step = OpenUpstreamStep(pr_db, pr_number, title, branch, body)
     steps += [step]
     return step.provides()['pr_url']
 
-def _open_upstream_pr(config, pr_db, pr_number, title, source_org, branch, body):
+def _open_upstream_pr(config, pr_db, pr_number, title, branch, body):
     data = {
         'title': title,
-        'head': (config['username'] + ':' + branch) if source_org != config['upstream_org'] else branch,
+        'head': branch_head_for_upstream(config, branch),
         'base': 'master',
         'body': body,
         'maintainer_can_modify': False,
@@ -316,7 +326,7 @@ def _do_comment_on_pr(config, pr_number, body):
     }
     return authenticated(config,
                          'POST',
-                         'repos/%s/servo/issues/%s/comments' % (config['servo_org'], pr_number),
+                         GITHUB_COMMENTS_URL % (config['servo_repo'], pr_number),
                          json=data)
 
 
@@ -375,8 +385,6 @@ def _fetch_upstreamable_commits(config, pull_request, branch):
     return filtered_commits
 
 
-SERVO_PR_URL = "https://github.com/%s/servo/pull/%s"
-
 def process_new_pr_contents(config, pr_db, pull_request, pr_diff, branch, pre_commit_callback, steps):
     pr_number = str(pull_request['number'])
     # Is this updating an existing pull request?
@@ -398,7 +406,7 @@ def process_new_pr_contents(config, pr_db, pull_request, pr_diff, branch, pre_co
             change_upstream_pr(pr_db[pr_number], 'closed', pull_request['title'], steps)
             extra_comment = 'No upstreamable changes; closed existing PR.'
         comment_on_pr(pr_number,
-                      '%s/web-platform-tests#%s' % (config['upstream_org'], pr_db[pr_number]),
+                      '%s#%s' % (config['wpt_repo'], pr_db[pr_number]),
                       extra_comment, steps)
         if not is_upstreamable:
             # Forget about the upstream PR. A new one will be opened if new upstremable
@@ -411,9 +419,9 @@ def process_new_pr_contents(config, pr_db, pull_request, pr_diff, branch, pre_co
         branch = upstream(pr_number, commits, pre_commit_callback, steps)
         # TODO: extract the non-checklist/reviewable parts of the pull request body
         #       and add it to the upstream body.
-        body = "Reviewed in %s." % (SERVO_PR_URL % (config['servo_org'], pr_number))
+        body = "Reviewed in %s." % (GITHUB_PR_URL % (config['servo_repo'], pr_number))
         # Create a pull request against the upstream repository for the new branch.
-        upstream_url = open_upstream_pr(pr_db, pr_number, pull_request['title'], config['username'], branch, body, steps)
+        upstream_url = open_upstream_pr(pr_db, pr_number, pull_request['title'], branch, body, steps)
         # Leave a comment to the new pull request in the original pull request.
         comment_on_pr(pr_number, upstream_url, 'Opened new PR for upstreamable changes.', steps)
 
@@ -425,7 +433,7 @@ def change_upstream_pr_title(config, pr_db, pull_request, steps):
 
         extra_comment = 'PR title changed; changed existing PR.'
         comment_on_pr(pr_number,
-                      '%s/web-platform-tests#%s' % (config['upstream_org'], pr_db[pr_number]),
+                      '%s#%s' % (config['wpt_repo'], pr_db[pr_number]),
                       extra_comment, steps)
 
 

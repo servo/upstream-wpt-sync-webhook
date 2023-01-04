@@ -19,9 +19,9 @@ with open(os.path.join(snapshot_dir, "pr.diff")) as f:
     pr_diff = f.read()
 
 config = {
-    'servo_org': 'servo',
     'username': 'servo-wpt-sync',
-    'upstream_org': 'jdm',
+    'servo_repo': 'servo/servo',
+    'wpt_repo': 'jdm/web-platform-tests',
     'port': 5000,
     'token': '',
     'api': 'http://api.github.com',
