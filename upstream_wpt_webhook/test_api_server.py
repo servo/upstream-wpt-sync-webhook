@@ -1,9 +1,11 @@
-from flask import Flask, request, jsonify, render_template, make_response, abort
 import json
 import locale
 import os
-from sync import UPSTREAMABLE_PATH, git, get_filtered_diff
+import sys
 import tempfile
+
+from flask import Flask, request, jsonify, render_template, make_response, abort
+from sync import UPSTREAMABLE_PATH, git, get_filtered_diff
 
 try:
     xrange
@@ -22,16 +24,20 @@ def start_server(port, _config):
     config.update(_config)
     app.run(port=port)
 
+exiting = False
 @app.route("/shutdown", methods=["POST"])
 def shutdown():
-    func = request.environ.get('werkzeug.server.shutdown')
-    if func is None:
-        raise RuntimeError('Not running with the Werkzeug Server')
-    func()
+    global exiting
+    exiting = True
     return ('', 204)
 
 @app.route("/ping")
 def ping():
+    global exiting
+    if exiting:
+        exiting = False
+        sys.exit()
+
     return ('pong', 200)
 
 def commits():

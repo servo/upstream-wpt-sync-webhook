@@ -78,16 +78,19 @@ def webhook():
 def test():
     return _webhook_impl(pr_db, True)
 
+exiting = False
 @app.route("/ping")
 def ping():
+    global exiting
+    if exiting:
+        exiting = False
+        sys.exit()
     return ('pong', 200)
 
 @app.route("/shutdown", methods=["POST"])
 def shutdown():
-    func = request.environ.get('werkzeug.server.shutdown')
-    if func is None:
-        raise RuntimeError('Not running with the Werkzeug Server')
-    func()
+    global exiting
+    exiting = True
     return ('', 204)
 
 def main(_config, _pr_db):

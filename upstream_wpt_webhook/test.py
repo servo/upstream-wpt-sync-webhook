@@ -184,7 +184,14 @@ class ServerThread(object):
     def shutdown(self):
         r = requests.post('http://localhost:%d/shutdown' % self.port)
         assert(r.status_code == 204)
-        #print('Stopped server thread on port ' + str(self.port))
+
+        # Wait for the server to stop responding to ping requests
+        while True:
+            try:
+                r = requests.get(f'http://localhost:{self.port}/ping')
+                time.sleep(0.5)
+            except:
+                break
 
 print('testing server hook with /test')
 
