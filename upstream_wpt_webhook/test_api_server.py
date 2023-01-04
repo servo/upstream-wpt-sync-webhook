@@ -13,15 +13,21 @@ except NameError:
     xrange = range
 
 app = Flask(__name__)
+exiting = False
+
 config = {
     'servo_path': None,
     'diff_files': None,
     'upstreamable': {},
 }
+pr_database = {}
 
 def start_server(port, _config):
     global config
     config.update(_config)
+
+    global pr_database
+    pr_database = config['pr_database']
     app.run(port=port)
 
 exiting = False
@@ -37,8 +43,8 @@ def ping():
     if exiting:
         exiting = False
         sys.exit()
-
     return ('pong', 200)
+
 
 def commits():
     def make_commit(diff_file):
@@ -82,11 +88,26 @@ def commit_with_single_file(upstreamable):
         }]
     }
 
-def new_pull_request():
+def new_pull_request(new_pr):
+    global pr_database
+    number = len(pr_database)
+    pr_database[(new_pr["head"], new_pr["base"])] = number
     return {
-        "number": 45,
-        "html_url": "http://path/to/pull/45",
+        "number": number,
+        "html_url": f"http://path/to/pull/{number}"
     }
+
+def get_pull_requests(args):
+    global pr_database
+    key = (args["head"], args["base"])
+    if key not in pr_database:
+        return []
+
+    number = pr_database[key]
+    return [{
+        "number": number,
+        "html_url": f"http://path/to/pull/{number}"
+    }]
 
 @app.route("/", defaults={'path': ''})
 @app.route("/<path:path>", methods=["POST","PATCH","GET", "DELETE", "PUT"])
@@ -96,8 +117,10 @@ def catch_all(path):
     elif 'commit_metadata/' in path:
         sha = path.split('/')[-1]
         return (json.dumps(commit_with_single_file(config['upstreamable'][sha])), 200)
-    elif path.endswith('pulls'):
-        return (json.dumps(new_pull_request()), 200)
+    elif path.endswith('pulls') and request.method == 'POST':
+        return (json.dumps(new_pull_request(request.json)), 200)
+    elif path.endswith('pulls') and request.method == 'GET':
+        return (json.dumps(get_pull_requests(request.args)), 200)
     elif path.endswith('merge'):
         return ('', 204)
     elif '/pulls/' in path:

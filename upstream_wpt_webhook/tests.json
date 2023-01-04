@@ -2,7 +2,7 @@
     {
         "name": "open new upstreamable PR",
         "payload": "new_pr.json",
-        "db": {},
+        "existing_prs": {},
         "expected": [
             "FetchUpstreamableStep:1",
             "UpstreamStep:1:servo_export_18746",
@@ -14,7 +14,7 @@
         "name": "open new upstreamable PR with move into wpt",
         "payload": "new_pr.json",
         "diff": "move-into-wpt.diff",
-        "db": {},
+        "existing_prs": {},
         "expected": [
             "FetchUpstreamableStep:1",
             "UpstreamStep:1:servo_export_18746",
@@ -26,7 +26,7 @@
         "name": "open new upstreamable PR with move into wpt, non-ascii author",
         "payload": "new_pr.json",
         "diff": [["move-into-wpt.diff", "Fernando Jiménez Moreno", "foo@bar.com", "ééééé"]],
-        "db": {},
+        "existing_prs": {},
         "expected": [
             "FetchUpstreamableStep:1",
             "UpstreamStep:1:servo_export_18746",
@@ -38,7 +38,7 @@
         "name": "open new upstreamable PR with move out of wpt",
         "payload": "new_pr.json",
         "diff": "move-out-of-wpt.diff",
-        "db": {},
+        "existing_prs": {},
         "expected": [
             "FetchUpstreamableStep:1",
             "UpstreamStep:1:servo_export_18746",
@@ -49,20 +49,20 @@
     {
         "name": "open new upstreamable PR, no-sync",
         "payload": "new_pr_no_sync.json",
-        "db": {},
+        "existing_prs": {},
         "expected": []
     },
     {
         "name": "open new non-upstreamable PR, no-sync",
         "payload": "new_pr_no_sync.json",
         "diff": "non-wpt.diff",
-        "db": {},
+        "existing_prs": {},
         "expected": []
     },
     {
         "name": "open existing upstreamable PR",
         "payload": "new_pr.json",
-        "db": {"18746": 1},
+        "existing_prs": {"servo_export_18746": 1},
         "expected": [
             "ChangeUpstreamStep:1:opened",
             "FetchUpstreamableStep:1",
@@ -74,7 +74,7 @@
         "name": "open existing non-upstreamable PR",
         "payload": "new_pr.json",
         "diff": "non-wpt.diff",
-        "db": {"18746": 1},
+        "existing_prs": {"servo_export_18746": 1},
         "expected": [
             "ChangeUpstreamStep:1:closed",
             "CommentStep:No upstreamable changes"
@@ -83,13 +83,13 @@
     {
         "name": "close non-upstreamable PR",
         "payload": "close_pr.json",
-        "db": {},
+        "existing_prs": {},
         "expected": []
     },
     {
         "name": "close upstreamable PR",
         "payload": "close_pr.json",
-        "db": {"18746": 10},
+        "existing_prs": {"servo_export_18746": 10},
         "expected": [
             "ChangeUpstreamStep:10:closed"
         ]
@@ -98,7 +98,7 @@
         "name": "synchronize upstreamable PR",
         "payload": "synchronize.json",
         "diff": "18746.diff",
-        "db": {"19612": 10},
+        "existing_prs": {"servo_export_19612": 10},
         "expected": [
             "ChangeUpstreamStep:10:opened",
             "FetchUpstreamableStep:1",
@@ -110,7 +110,7 @@
         "name": "synchronize newly non-upstreamable PR",
         "payload": "synchronize.json",
         "diff": "non-wpt.diff",
-        "db": {"19612": 11},
+        "existing_prs": {"servo_export_19612": 11},
         "expected": [
             "ChangeUpstreamStep:11:closed",
             "CommentStep:No upstreamable changes"
@@ -120,7 +120,7 @@
         "name": "synchronize newly upstreamable PR",
         "payload": "synchronize.json",
         "diff": "18746.diff",
-        "db": {},
+        "existing_prs": {},
         "expected": [
             "FetchUpstreamableStep:1",
             "UpstreamStep:1:servo_export_19612",
@@ -132,7 +132,7 @@
         "name": "synchronize new upstreamable PR multiple commits",
         "payload": "synchronize.json",
         "diff": ["18746.diff", "non-wpt.diff", "wpt.diff"],
-        "db": {},
+        "existing_prs": {},
         "expected": [
             "FetchUpstreamableStep:2",
             "UpstreamStep:2:servo_export_19612",
@@ -144,14 +144,14 @@
         "name": "synchronize non-upstreamable PR",
         "payload": "synchronize.json",
         "diff": "non-wpt.diff",
-        "db": {},
+        "existing_prs": {},
         "expected": []
     },
     {
         "name": "merge upstreamed PR",
         "payload": "merged.json",
         "diff": "18746.diff",
-        "db": {"19620": 100},
+        "existing_prs": {"servo_export_19620": 100},
         "expected": [
             "MergeUpstreamStep:100"
         ]
@@ -160,7 +160,7 @@
         "name": "merge non-upstreamed PR",
         "payload": "merged.json",
         "diff": "non-wpt.diff",
-        "db": {},
+        "existing_prs": {},
         "expected": []
     }
 ]

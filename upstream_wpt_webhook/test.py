@@ -8,7 +8,7 @@ import hook
 import json
 import requests
 import sync
-from sync import process_and_run_steps, UPSTREAMABLE_PATH, _upstream, git
+from sync import branch_head_for_upstream, process_and_run_steps, UPSTREAMABLE_PATH, _upstream, git
 from test_api_server import start_server
 import threading
 import time
@@ -117,10 +117,15 @@ def get_pr_diff(test, pull_request):
 with open('tests.json') as f:
     tests = json.loads(f.read())
 
-def make_api_config(test, payload, servo_path):
+def make_api_config(config, test, payload):
+    pr_database = {}
+    for (branch, pr_number) in test["existing_prs"].items():
+        pr_database[(branch_head_for_upstream(config, branch), 'master')] = pr_number
+
     api_config = {
         "diff_files": pr_diff_files(test, payload["pull_request"]),
-        "servo_path": servo_path,
+        "servo_path": config["servo_path"],
+        "pr_database": pr_database
     }
     api_config.update(test.get('api_config', {}))
     return api_config
@@ -129,12 +134,16 @@ for (i, test) in enumerate(filter(lambda x: not x.get('disabled', False), tests)
     with open(os.path.join('tests', test['payload'])) as f:
         payload = json.loads(f.read())
 
+    print()
+    print('=' * 80)
+    print(f'Running "{test["name"]}"'),
+    print('=' * 80)
+
     port = 9000 + i
     config['api'] = 'http://localhost:' + str(port)
     config['override_host'] = config['api']
-    server = APIServerThread(make_api_config(test, payload, config['servo_path']), port)
+    server = APIServerThread(make_api_config(config, test, payload), port)
 
-    print(test['name'] + ':'),
     executed = []
     def callback(step):
         global executed
@@ -152,7 +161,6 @@ for (i, test) in enumerate(filter(lambda x: not x.get('disabled', False), tests)
         assert last_commit == expected, "%s != %s" % (last_commit, expected)
     commits = pr_diff_files(test, payload['pull_request'])
     result = process_and_run_steps(config,
-                                   test['db'],
                                    payload,
                                    partial(get_pr_diff, test),
                                    "master",
@@ -163,12 +171,18 @@ for (i, test) in enumerate(filter(lambda x: not x.get('disabled', False), tests)
     if result and all(map(lambda values: values[0] == values[1]
                           if ':' not in values[1] else values[0].startswith(values[1]),
                zip(executed, test['expected']))):
-        print('passed')
+        print('=' * 80)
+        print(f'Test result: PASSED'),
+        print('=' * 80)
     else:
+        print('=' * 80)
+        print(f'Test result: FAILED'),
         print()
         print(executed)
         print('vs')
         print(test['expected'])
+        print('=' * 80)
+
         assert(executed == test['expected'])
 
 class ServerThread(object):
@@ -181,7 +195,7 @@ class ServerThread(object):
         wait_for_server(config['port'])
 
     def run(self, config):
-        hook.main(config, {})
+        hook.main(config)
 
     def shutdown(self):
         r = requests.post('http://localhost:%d/shutdown' % self.port)
@@ -195,10 +209,11 @@ class ServerThread(object):
             except:
                 break
 
-print('testing server hook with /test')
-
 for (i, test) in enumerate(tests):
-    print(test['name'] + ':'),
+    print()
+    print('=' * 80)
+    print(f'Running test "{test["name"]}" via webhook'),
+    print('=' * 80)
 
     this_config = copy.deepcopy(config)
     this_config['port'] += i
@@ -210,7 +225,7 @@ for (i, test) in enumerate(tests):
     with open(os.path.join('tests', test['payload'])) as f:
         payload = f.read()
 
-    api_server = APIServerThread(make_api_config(test, json.loads(payload), config['servo_path']), port)
+    api_server = APIServerThread(make_api_config(config, test, json.loads(payload)), port)
 
     r = requests.post('http://localhost:' + str(this_config['port']) + '/test', data={'payload': payload})
     if r.status_code != 204:
@@ -219,4 +234,6 @@ for (i, test) in enumerate(tests):
     server.shutdown()
     api_server.shutdown()
 
-    print('passed')
+    print('=' * 80)
+    print(f'Result: PASSED'),
+    print('=' * 80)

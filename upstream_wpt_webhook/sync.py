@@ -28,6 +28,9 @@ def branch_head_for_upstream(config, branch):
     else:
         return branch
 
+def wpt_branch_name_from_servo_pr_number(servo_pr_number):
+    return f"servo_export_{servo_pr_number}"
+
 class Step:
     def __init__(self, name):
         self.name = name
@@ -58,12 +61,12 @@ def authenticated(config, method, url, json=None):
         'Authorization': 'token %s' % config['token'],
         'User-Agent': 'Servo web-platform-test sync service',
     }
-    if 'override_host' in config:
-        # Ensure that any URLs retrieved are rewritten to use the overriden host
-        partial = urlparse.urlsplit(url)
-        url = partial[2] + partial[3] + partial[4]
 
+    # Ensure that any URLs retrieved are rewritten to use the configured API host.
+    parts = urlparse.urlsplit(url)
+    url = urlparse.urlunsplit(['', '', parts[2], parts[3], parts[4]])
     url = urlparse.urljoin(config['api'], url)
+
     print('fetching %s' % url)
     response = s.request(method, url, json=json)
     if int(response.status_code / 100) != 2:
@@ -128,7 +131,7 @@ def upstream(servo_pr_number, commits, pre_commit_callback, steps):
     return step.provides()['branch']
 
 def _upstream(config, servo_pr_number, commits, pre_commit_callback, pre_delete_callback=None):
-    BRANCH_NAME = "servo_export_%s" % servo_pr_number
+    branch_name = wpt_branch_name_from_servo_pr_number(servo_pr_number)
 
     def upstream_inner(config, commits):
         PATCH_FILE = 'tmp.patch'
@@ -137,11 +140,11 @@ def _upstream(config, servo_pr_number, commits, pre_commit_callback, pre_delete_
         # Ensure WPT clone is up to date.
         wpt_path = config['wpt_path']
         git(["checkout", "master"], cwd=wpt_path)
-        git(["fetch", "origin", "master"], cwd=wpt_path)
+        git(["fetch", "origin", "master", "--depth", "1"], cwd=wpt_path)
         git(["reset", "--hard", "origin/master"], cwd=wpt_path)
 
         # Create a new branch with a unique name that is consistent between updates of the same PR
-        git(["checkout", "-b", BRANCH_NAME], cwd=wpt_path)
+        git(["checkout", "-b", branch_name], cwd=wpt_path)
 
         patch_path = os.path.join(wpt_path, PATCH_FILE)
 
@@ -174,9 +177,9 @@ def _upstream(config, servo_pr_number, commits, pre_commit_callback, pre_delete_
                 token=config['token'],
                 repo=config['downstream_wpt_repo'],
             )
-            git(["push", "-f", remote_url, BRANCH_NAME], cwd=config['wpt_path'])
+            git(["push", "-f", remote_url, branch_name], cwd=config['wpt_path'])
 
-        return BRANCH_NAME
+        return branch_name
 
     try:
         result = upstream_inner(config, commits)
@@ -188,7 +191,7 @@ def _upstream(config, servo_pr_number, commits, pre_commit_callback, pre_delete_
     finally:
         try:
             git(["checkout", "master"], cwd=config['wpt_path'])
-            git(["branch", "-D", BRANCH_NAME], cwd=config['wpt_path'])
+            git(["branch", "-D", branch_name], cwd=config['wpt_path'])
         except:
             pass
 
@@ -257,10 +260,8 @@ def modify_upstream_pr_labels(config, method, labels, pr_number):
 
 
 class OpenUpstreamStep(Step):
-    def __init__(self, pr_db, pr_number, title, branch, body):
+    def __init__(self, title, branch, body):
         Step.__init__(self, 'OpenUpstreamStep')
-        self.pr_db = pr_db
-        self.pr_number = pr_number
         self.title = title
         self.branch = branch
         self.body = body
@@ -271,20 +272,18 @@ class OpenUpstreamStep(Step):
 
     def run(self, config):
         pr_url = _open_upstream_pr(config,
-                                   self.pr_db,
-                                   self.pr_number,
                                    self.title,
                                    self.branch.value(),
                                    self.body)
         self.new_pr_url.resolve(pr_url)
 
 
-def open_upstream_pr(pr_db, pr_number, title, branch, body, steps):
-    step = OpenUpstreamStep(pr_db, pr_number, title, branch, body)
+def open_upstream_pr(title, branch, body, steps):
+    step = OpenUpstreamStep(title, branch, body)
     steps += [step]
     return step.provides()['pr_url']
 
-def _open_upstream_pr(config, pr_db, pr_number, title, branch, body):
+def _open_upstream_pr(config, title, branch, body):
     data = {
         'title': title,
         'head': branch_head_for_upstream(config, branch),
@@ -297,10 +296,22 @@ def _open_upstream_pr(config, pr_db, pr_number, title, branch, body):
                       upstream_pulls(config),
                       json=data)
     result = r.json()
-    pr_db[pr_number] = result["number"]
-    pr_url = result["html_url"]
-    modify_upstream_pr_labels(config, 'POST', ['servo-export', 'do not merge yet'], pr_db[pr_number])
-    return pr_url
+    new_pr_number = result["number"]
+    modify_upstream_pr_labels(config, 'POST', ['servo-export', 'do not merge yet'], new_pr_number)
+    return result["html_url"]
+
+
+def get_upstream_pr_number_from_pr(config, pull_request):
+    branch = wpt_branch_name_from_servo_pr_number(pull_request['number'])
+    head = branch_head_for_upstream(config, branch)
+    result = authenticated(config,
+                          'GET',
+                          f"{upstream_pulls(config)}?head={head}&base=master&state=open")
+    result = result.json()
+    if not result or not type(result) is list:
+        return None
+
+    return str(result[0]["number"])
 
 
 class CommentStep(Step):
@@ -385,17 +396,19 @@ def _fetch_upstreamable_commits(config, pull_request, branch):
     return filtered_commits
 
 
-def process_new_pr_contents(config, pr_db, pull_request, pr_diff, branch, pre_commit_callback, steps):
+def process_new_pr_contents(config, pull_request, pr_diff, branch, pre_commit_callback, steps):
     pr_number = str(pull_request['number'])
+    upstream_pr_number = get_upstream_pr_number_from_pr(config, pull_request)
+
     # Is this updating an existing pull request?
-    if pr_number in pr_db:
+    if upstream_pr_number:
         is_upstreamable = patch_contains_upstreamable_changes(pr_diff)
         if is_upstreamable:
             # In case this is adding new upstreamable changes to a PR that was closed
             # due to a lack of upstreamable changes, force it to be reopened.
             # Github refuses to reopen a PR that had a branch force pushed, so be sure
             # to do this first.
-            change_upstream_pr(pr_db[pr_number], 'opened', pull_request['title'], steps)
+            change_upstream_pr(upstream_pr_number, 'opened', pull_request['title'], steps)
             # Retrieve the set of commits that need to be transplanted.
             commits = fetch_upstreamable_commits(pull_request, branch, steps)
             # Push the relevant changes to the upstream branch.
@@ -403,15 +416,11 @@ def process_new_pr_contents(config, pr_db, pull_request, pr_diff, branch, pre_co
             extra_comment = 'Transplanted upstreamable changes to existing PR.'
         else:
             # Close the upstream PR, since would contain no changes otherwise.
-            change_upstream_pr(pr_db[pr_number], 'closed', pull_request['title'], steps)
+            change_upstream_pr(upstream_pr_number, 'closed', pull_request['title'], steps)
             extra_comment = 'No upstreamable changes; closed existing PR.'
         comment_on_pr(pr_number,
-                      '%s#%s' % (config['wpt_repo'], pr_db[pr_number]),
+                      '%s#%s' % (config['wpt_repo'], upstream_pr_number),
                       extra_comment, steps)
-        if not is_upstreamable:
-            # Forget about the upstream PR. A new one will be opened if new upstremable
-            # changes are later added.
-            pr_db.pop(pr_number)
     elif patch_contains_upstreamable_changes(pr_diff):
         # Retrieve the set of commits that need to be transplanted.
         commits = fetch_upstreamable_commits(pull_request, branch, steps)
@@ -421,61 +430,58 @@ def process_new_pr_contents(config, pr_db, pull_request, pr_diff, branch, pre_co
         #       and add it to the upstream body.
         body = "Reviewed in %s." % (GITHUB_PR_URL % (config['servo_repo'], pr_number))
         # Create a pull request against the upstream repository for the new branch.
-        upstream_url = open_upstream_pr(pr_db, pr_number, pull_request['title'], branch, body, steps)
+        upstream_url = open_upstream_pr(pull_request['title'], branch, body, steps)
         # Leave a comment to the new pull request in the original pull request.
         comment_on_pr(pr_number, upstream_url, 'Opened new PR for upstreamable changes.', steps)
 
 
-def change_upstream_pr_title(config, pr_db, pull_request, steps):
-    pr_number = str(pull_request['number'])
-    if pr_number in pr_db:
-        change_upstream_pr(pr_db[pr_number], 'open', pull_request['title'], steps)
+def change_upstream_pr_title(config, pull_request, steps):
+    upstream_pr_number = get_upstream_pr_number_from_pr(config, pull_request)
+    if upstream_pr_number:
+        change_upstream_pr(upstream_pr_number, 'open', pull_request['title'], steps)
 
         extra_comment = 'PR title changed; changed existing PR.'
-        comment_on_pr(pr_number,
-                      '%s#%s' % (config['wpt_repo'], pr_db[pr_number]),
+        comment_on_pr(upstream_pr_number,
+                      '%s#%s' % (config['wpt_repo'], upstream_pr_number),
                       extra_comment, steps)
 
 
-def process_closed_pr(pr_db, pull_request, steps):
-    pr_number = str(pull_request['number'])
-    if not pr_number in pr_db:
+def process_closed_pr(config, pull_request, steps):
+    upstream_pr_number = get_upstream_pr_number_from_pr(config, pull_request)
+    if not upstream_pr_number:
         # If we don't recognize this PR, it never contained upstreamable changes.
         return
     if pull_request['merged']:
         # Since the upstreamable changes have now been merged locally, merge the
         # corresponding upstream PR.
-        merge_upstream_pr(pr_db[pr_number], steps)
+        merge_upstream_pr(upstream_pr_number, steps)
     else:
         # If a PR with upstreamable changes is closed without being merged, we
         # don't want to merge the changes upstream either.
-        change_upstream_pr(pr_db[pr_number], 'closed', pull_request['title'], steps)
-    pr_db.pop(pr_number)
+        change_upstream_pr(upstream_pr_number, 'closed', pull_request['title'], steps)
 
 
-def process_json_payload(config, pr_db, payload, diff_provider, branch, pre_commit_callback):
+def process_json_payload(config, payload, diff_provider, branch, pre_commit_callback):
     pull_request = payload['pull_request']
     if NO_SYNC_SIGNAL in pull_request.get('body', ''):
         return []
 
     steps = []
     if payload['action'] in ['opened', 'synchronize', 'reopened']:
-        process_new_pr_contents(config, pr_db, pull_request, diff_provider(pull_request),
+        process_new_pr_contents(config, pull_request, diff_provider(pull_request),
                                 branch, pre_commit_callback, steps)
     elif payload['action'] == 'edited' and 'title' in payload['changes']:
-        change_upstream_pr_title(config, pr_db, pull_request, steps)
+        change_upstream_pr_title(config, pull_request, steps)
     elif payload['action'] == 'closed':
-        process_closed_pr(pr_db, pull_request, steps)
+        process_closed_pr(config, pull_request, steps)
     return steps
 
 
-def save_snapshot(payload, exception_info, pr_db, diff_provider):
+def save_snapshot(payload, exception_info, diff_provider):
     name = 'error-snapshot-%s' % int(round(time.time() * 1000))
     os.mkdir(name)
     with open(os.path.join(name, 'payload.json'), 'w') as f:
         f.write(json.dumps(payload, indent=2))
-    with open(os.path.join(name, 'pr_db.json'), 'w') as f:
-        f.write(json.dumps(pr_db, indent=2))
     with open(os.path.join(name, 'exception'), 'w') as f:
         f.write(''.join(exception_info))
     with open(os.path.join(name, 'pr.diff'), 'w') as f:
@@ -483,11 +489,10 @@ def save_snapshot(payload, exception_info, pr_db, diff_provider):
     return name
 
 
-def process_and_run_steps(config, pr_db, payload, provider, branch,
+def process_and_run_steps(config, payload, provider, branch,
                           step_callback=None, error_callback=None, pre_commit_callback=None):
-    orig_pr_db = copy.deepcopy(pr_db)
     try:
-        steps = process_json_payload(config, pr_db, payload, provider, branch, pre_commit_callback)
+        steps = process_json_payload(config, payload, provider, branch, pre_commit_callback)
         for step in steps:
             step.run(config)
             if step_callback:
@@ -496,7 +501,7 @@ def process_and_run_steps(config, pr_db, payload, provider, branch,
     except:
         exc_type, exc_value, exc_traceback = sys.exc_info()
         info = traceback.format_exception(exc_type, exc_value, exc_traceback)
-        dir_name = save_snapshot(payload, info, orig_pr_db, provider)
+        dir_name = save_snapshot(payload, info, provider)
         if error_callback:
             error_callback(dir_name)
         return False
