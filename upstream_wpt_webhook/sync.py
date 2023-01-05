@@ -87,9 +87,9 @@ def git(*args, **kwargs):
         raise e
 
 
-class UpstreamStep(Step):
+class CreateOrUpdateBranchForPRStep(Step):
     def __init__(self, servo_pr_number, commits, pre_commit_callback):
-        Step.__init__(self, 'UpstreamStep')
+        Step.__init__(self, 'CreateOrUpdateBranchForPRStep')
         self.servo_pr_number = servo_pr_number
         self.commits = commits
         self.pre_commit_callback = pre_commit_callback
@@ -100,17 +100,17 @@ class UpstreamStep(Step):
 
     def run(self, config):
         commits = self.commits.value()
-        branch = _upstream(config, self.servo_pr_number, commits, self.pre_commit_callback)
+        branch = _create_or_update_branch_for_pr(config, self.servo_pr_number, commits, self.pre_commit_callback)
         self.branch.resolve(branch)
         self.name += ':%d:%s' % (len(commits), branch)
 
 
-def upstream(servo_pr_number, commits, pre_commit_callback, steps):
-    step = UpstreamStep(servo_pr_number, commits, pre_commit_callback)
+def create_or_update_branch_for_pr(servo_pr_number, commits, pre_commit_callback, steps):
+    step = CreateOrUpdateBranchForPRStep(servo_pr_number, commits, pre_commit_callback)
     steps += [step]
     return step.provides()['branch']
 
-def _upstream(config, servo_pr_number, commits, pre_commit_callback, pre_delete_callback=None):
+def _create_or_update_branch_for_pr(config, servo_pr_number, commits, pre_commit_callback, pre_delete_callback=None):
     branch_name = wpt_branch_name_from_servo_pr_number(servo_pr_number)
 
     def upstream_inner(config, commits):
@@ -171,9 +171,25 @@ def _upstream(config, servo_pr_number, commits, pre_commit_callback, pre_delete_
             pass
 
 
-class ChangeUpstreamStep(Step):
+class RemoveBranchForPRStep(Step):
+    def __init__(self, pull_request):
+        Step.__init__(self, 'RemoveBranchForPRStep')
+        self.pull_request = pull_request
+
+    def run(self, config):
+        print("  -> Removing branch used for upstream PR")
+        branch_name = wpt_branch_name_from_servo_pr_number(self.pull_request['number'])
+        if not config.get('suppress_force_push', False):
+            git(["push", "origin", "--delete", branch_name], cwd=config['wpt_path'])
+
+
+def remove_branch_for_pr(pull_request, steps):
+    steps += [RemoveBranchForPRStep(pull_request)]
+
+
+class ChangeUpstreamPRStep(Step):
     def __init__(self, upstream, state, title):
-        Step.__init__(self, 'ChangeUpstreamStep:%s:%s:%s' % (upstream, state, title) )
+        Step.__init__(self, 'ChangeUpstreamPRStep:%s:%s:%s' % (upstream, state, title) )
         self.upstream = upstream
         self.state = state
         self.title = title
@@ -183,7 +199,7 @@ class ChangeUpstreamStep(Step):
 
 
 def change_upstream_pr(upstream, state, title, steps):
-    steps += [ChangeUpstreamStep(upstream, state, title)]
+    steps += [ChangeUpstreamPRStep(upstream, state, title)]
 
 def _change_upstream_pr(config, upstream, state, title):
     data = {
@@ -234,9 +250,9 @@ def modify_upstream_pr_labels(config, method, labels, pr_number):
                   json=labels)
 
 
-class OpenUpstreamStep(Step):
+class OpenUpstreamPRStep(Step):
     def __init__(self, title, branch, body):
-        Step.__init__(self, 'OpenUpstreamStep')
+        Step.__init__(self, 'OpenUpstreamPRStep')
         self.title = title
         self.branch = branch
         self.body = body
@@ -254,7 +270,7 @@ class OpenUpstreamStep(Step):
 
 
 def open_upstream_pr(title, branch, body, steps):
-    step = OpenUpstreamStep(title, branch, body)
+    step = OpenUpstreamPRStep(title, branch, body)
     steps += [step]
     return step.provides()['pr_url']
 
@@ -404,11 +420,12 @@ def process_new_pr_contents(config, pull_request, pre_commit_callback, steps):
             # Retrieve the set of commits that need to be transplanted.
             commits = fetch_upstreamable_commits(pull_request, steps)
             # Push the relevant changes to the upstream branch.
-            upstream(pr_number, commits, pre_commit_callback, steps)
+            create_or_update_branch_for_pr(pr_number, commits, pre_commit_callback, steps)
             extra_comment = 'Transplanted upstreamable changes to existing PR.'
         else:
             # Close the upstream PR, since would contain no changes otherwise.
             change_upstream_pr(upstream_pr_number, 'closed', pull_request['title'], steps)
+            remove_branch_for_pr(pull_request, steps)
             extra_comment = 'No upstreamable changes; closed existing PR.'
         comment_on_pr(pr_number,
                       '%s#%s' % (config['wpt_repo'], upstream_pr_number),
@@ -417,7 +434,7 @@ def process_new_pr_contents(config, pull_request, pre_commit_callback, steps):
         # Retrieve the set of commits that need to be transplanted.
         commits = fetch_upstreamable_commits(pull_request, steps)
         # Push the relevant changes to a new upstream branch.
-        branch = upstream(pr_number, commits, pre_commit_callback, steps)
+        branch = create_or_update_branch_for_pr(pr_number, commits, pre_commit_callback, steps)
         # TODO: extract the non-checklist/reviewable parts of the pull request body
         #       and add it to the upstream body.
         body = "Reviewed in %s." % (GITHUB_PR_URL % (config['servo_repo'], pr_number))
@@ -453,6 +470,7 @@ def process_closed_pr(config, pull_request, steps):
         # If a PR with upstreamable changes is closed without being merged, we
         # don't want to merge the changes upstream either.
         change_upstream_pr(upstream_pr_number, 'closed', pull_request['title'], steps)
+        remove_branch_for_pr(pull_request, steps)
 
 
 def process_json_payload(config, payload, pre_commit_callback):

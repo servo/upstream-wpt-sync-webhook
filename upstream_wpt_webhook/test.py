@@ -9,7 +9,7 @@ from functools import partial
 import json
 import requests
 import sync
-from sync import branch_head_for_upstream, process_and_run_steps, UPSTREAMABLE_PATH, _upstream, git
+from sync import branch_head_for_upstream, process_and_run_steps, UPSTREAMABLE_PATH, _create_or_update_branch_for_pr, git
 from test_api_server import start_server
 import threading
 import time
@@ -107,7 +107,8 @@ for test in git_tests:
         with open(commit['diff']) as f:
             commit['diff'] = f.read()
     pr_number = test['pr_number']
-    _upstream(config, pr_number, test['commits'], None, partial(git_callback, test))
+    _create_or_update_branch_for_pr(config, pr_number, test['commits'], None,
+                                    partial(git_callback, test))
 
 print('=' * 80)
 print(f'Result: PASSED'),

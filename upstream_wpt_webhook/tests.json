@@ -5,8 +5,8 @@
         "existing_prs": {},
         "expected": [
             "FetchUpstreamableStep:1",
-            "UpstreamStep:1:servo_export_18746",
-            "OpenUpstreamStep",
+            "CreateOrUpdateBranchForPRStep:1:servo_export_18746",
+            "OpenUpstreamPRStep",
             "CommentStep:Opened new PR"
         ]
     },
@@ -17,8 +17,8 @@
         "existing_prs": {},
         "expected": [
             "FetchUpstreamableStep:1",
-            "UpstreamStep:1:servo_export_18746",
-            "OpenUpstreamStep",
+            "CreateOrUpdateBranchForPRStep:1:servo_export_18746",
+            "OpenUpstreamPRStep",
             "CommentStep:Opened new PR"
         ]
     },
@@ -29,8 +29,8 @@
         "existing_prs": {},
         "expected": [
             "FetchUpstreamableStep:1",
-            "UpstreamStep:1:servo_export_18746",
-            "OpenUpstreamStep",
+            "CreateOrUpdateBranchForPRStep:1:servo_export_18746",
+            "OpenUpstreamPRStep",
             "CommentStep:Opened new PR"
         ]
     },
@@ -41,8 +41,8 @@
         "existing_prs": {},
         "expected": [
             "FetchUpstreamableStep:1",
-            "UpstreamStep:1:servo_export_18746",
-            "OpenUpstreamStep",
+            "CreateOrUpdateBranchForPRStep:1:servo_export_18746",
+            "OpenUpstreamPRStep",
             "CommentStep:Opened new PR"
         ]
     },
@@ -64,9 +64,9 @@
         "payload": "new_pr.json",
         "existing_prs": {"servo_export_18746": 1},
         "expected": [
-            "ChangeUpstreamStep:1:opened",
+            "ChangeUpstreamPRStep:1:opened",
             "FetchUpstreamableStep:1",
-            "UpstreamStep:1:servo_export_18746",
+            "CreateOrUpdateBranchForPRStep:1:servo_export_18746",
             "CommentStep:Transplanted upstreamable"
         ]
     },
@@ -76,7 +76,8 @@
         "diff": "non-wpt.diff",
         "existing_prs": {"servo_export_18746": 1},
         "expected": [
-            "ChangeUpstreamStep:1:closed",
+            "ChangeUpstreamPRStep:1:closed",
+            "RemoveBranchForPRStep",
             "CommentStep:No upstreamable changes"
         ]
     },
@@ -91,7 +92,8 @@
         "payload": "close_pr.json",
         "existing_prs": {"servo_export_18746": 10},
         "expected": [
-            "ChangeUpstreamStep:10:closed"
+            "ChangeUpstreamPRStep:10:closed",
+            "RemoveBranchForPRStep"
         ]
     },
     {
@@ -100,9 +102,9 @@
         "diff": "18746.diff",
         "existing_prs": {"servo_export_19612": 10},
         "expected": [
-            "ChangeUpstreamStep:10:opened",
+            "ChangeUpstreamPRStep:10:opened",
             "FetchUpstreamableStep:1",
-            "UpstreamStep:1:servo_export_19612",
+            "CreateOrUpdateBranchForPRStep:1:servo_export_19612",
             "CommentStep:Transplanted upstreamable changes"
         ]
     },
@@ -112,7 +114,8 @@
         "diff": "non-wpt.diff",
         "existing_prs": {"servo_export_19612": 11},
         "expected": [
-            "ChangeUpstreamStep:11:closed",
+            "ChangeUpstreamPRStep:11:closed",
+            "RemoveBranchForPRStep",
             "CommentStep:No upstreamable changes"
         ]
     },
@@ -123,8 +126,8 @@
         "existing_prs": {},
         "expected": [
             "FetchUpstreamableStep:1",
-            "UpstreamStep:1:servo_export_19612",
-            "OpenUpstreamStep",
+            "CreateOrUpdateBranchForPRStep:1:servo_export_19612",
+            "OpenUpstreamPRStep",
             "CommentStep:Opened new PR"
         ]
     },
@@ -135,8 +138,8 @@
         "existing_prs": {},
         "expected": [
             "FetchUpstreamableStep:2",
-            "UpstreamStep:2:servo_export_19612",
-            "OpenUpstreamStep",
+            "CreateOrUpdateBranchForPRStep:2:servo_export_19612",
+            "OpenUpstreamPRStep",
             "CommentStep:Opened new PR"
         ]
     },
