@@ -279,13 +279,15 @@ def _open_upstream_pr(config, title, branch, body):
 def get_upstream_pr_number_from_pr(config, pull_request):
     branch = wpt_branch_name_from_servo_pr_number(pull_request['number'])
     head = branch_head_for_upstream(config, branch)
-    result = authenticated(config,
+    response = authenticated(config,
                           'GET',
                           f"{upstream_pulls(config)}?head={head}&base=master&state=open")
-    result = result.json()
-    if not result or not type(result) is list:
+    if int(response.status_code / 100) != 2:
         return None
 
+    result = response.json()
+    if not result or not type(result) is list:
+        return None
     return str(result[0]["number"])
 
 
