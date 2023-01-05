@@ -88,10 +88,9 @@ def git(*args, **kwargs):
 
 
 class CreateOrUpdateBranchForPRStep(Step):
-    def __init__(self, servo_pr_number, commits, pre_commit_callback):
+    def __init__(self, pull_request, pre_commit_callback):
         Step.__init__(self, 'CreateOrUpdateBranchForPRStep')
-        self.servo_pr_number = servo_pr_number
-        self.commits = commits
+        self.pull_request = pull_request
         self.pre_commit_callback = pre_commit_callback
 
     def provides(self):
@@ -99,19 +98,47 @@ class CreateOrUpdateBranchForPRStep(Step):
         return {'branch': self.branch}
 
     def run(self, config):
-        commits = self.commits.value()
-        branch = _create_or_update_branch_for_pr(config, self.servo_pr_number, commits, self.pre_commit_callback)
+        commits = _fetch_upstreamable_commits(config, self.pull_request)
+        branch = _create_or_update_branch_for_pr(config, self.pull_request, commits, self.pre_commit_callback)
         self.branch.resolve(branch)
         self.name += ':%d:%s' % (len(commits), branch)
 
 
-def create_or_update_branch_for_pr(servo_pr_number, commits, pre_commit_callback, steps):
-    step = CreateOrUpdateBranchForPRStep(servo_pr_number, commits, pre_commit_callback)
+def create_or_update_branch_for_pr(pull_request, pre_commit_callback, steps):
+    step = CreateOrUpdateBranchForPRStep(pull_request, pre_commit_callback)
     steps += [step]
     return step.provides()['branch']
 
-def _create_or_update_branch_for_pr(config, servo_pr_number, commits, pre_commit_callback, pre_delete_callback=None):
-    branch_name = wpt_branch_name_from_servo_pr_number(servo_pr_number)
+def _fetch_upstreamable_commits(config, pull_request):
+    path = config["servo_path"]
+    number_of_commits = pull_request["commits"]
+
+    commit_shas = git(["log", "--pretty=%H", f"-{number_of_commits}"], cwd=path).splitlines()
+    filtered_commits = []
+    for sha in commit_shas:
+        # Specifying the path here does a few things. First, it exludes any
+        # changes that do not touch WPT files at all. Secondly, when a file is
+        # moved in or out of the WPT directory the filename which is outside the
+        # directory becomes /dev/null and the change becomes an addition or
+        # deletion. This makes the patch usable on the WPT repository itself.
+        # TODO: If we could cleverly parse and manipulate the full commit diff
+        # we could avoid cloning the servo repository altogether and only
+        # have to fetch the commit diffs from GitHub.
+        diff = git(["show", "--binary", "--format=%b", sha, '--',  UPSTREAMABLE_PATH], cwd=path)
+
+        # Retrieve the diff of any changes to files that are relevant
+        if diff:
+            # Create an object that contains everything necessary to transplant this
+            # commit to another repository.
+            filtered_commits += [{
+                'author': git(["show", "-s", "--pretty=%an <%ae>", sha], cwd=path),
+                'message': git(["show", "-s", "--pretty=%B", sha], cwd=path),
+                'diff': diff,
+            }]
+    return filtered_commits
+
+def _create_or_update_branch_for_pr(config, pull_request, commits, pre_commit_callback, pre_delete_callback=None):
+    branch_name = wpt_branch_name_from_servo_pr_number(pull_request['number'])
 
     def upstream_inner(config, commits):
         PATCH_FILE = 'tmp.patch'
@@ -350,55 +377,6 @@ def patch_contains_upstreamable_changes(config, pull_request):
     return len(output) > 0
 
 
-class FetchUpstreamableStep(Step):
-    def __init__(self, pull_request):
-        Step.__init__(self, 'FetchUpstreamableStep')
-        self.pull_request = pull_request
-
-    def provides(self):
-        self.commits = AsyncValue()
-        return {'commits': self.commits}
-
-    def run(self, config):
-        commits = _fetch_upstreamable_commits(config, self.pull_request)
-        self.name += ':%d' % len(commits)
-        self.commits.resolve(commits)
-
-
-def fetch_upstreamable_commits(pull_request, steps):
-    step = FetchUpstreamableStep(pull_request)
-    steps += [step]
-    return step.provides()['commits']
-
-
-def _fetch_upstreamable_commits(config, pull_request):
-    path = config["servo_path"]
-    number_of_commits = pull_request["commits"]
-
-    commit_shas = git(["log", "--pretty=%H", f"-{number_of_commits}"], cwd=path).splitlines()
-    filtered_commits = []
-    for sha in commit_shas:
-        # Specifying the path here does a few things. First, it exludes any
-        # changes that do not touch WPT files at all. Secondly, when a file is
-        # moved in or out of the WPT directory the filename which is outside the
-        # directory becomes /dev/null and the change becomes an addition or
-        # deletion. This makes the patch usable on the WPT repository itself.
-        # TODO: If we could cleverly parse and manipulate the full commit diff
-        # we could avoid cloning the servo repository altogether and only
-        # have to fetch the commit diffs from GitHub.
-        diff = git(["show", "--binary", "--format=%b", sha, '--',  UPSTREAMABLE_PATH], cwd=path)
-
-        # Retrieve the diff of any changes to files that are relevant
-        if diff:
-            # Create an object that contains everything necessary to transplant this
-            # commit to another repository.
-            filtered_commits += [{
-                'author': git(["show", "-s", "--pretty=%an <%ae>", sha], cwd=path),
-                'message': git(["show", "-s", "--pretty=%B", sha], cwd=path),
-                'diff': diff,
-            }]
-    return filtered_commits
-
 
 def process_new_pr_contents(config, pull_request, pre_commit_callback, steps):
     pr_number = str(pull_request['number'])
@@ -417,10 +395,8 @@ def process_new_pr_contents(config, pull_request, pre_commit_callback, steps):
             # Github refuses to reopen a PR that had a branch force pushed, so be sure
             # to do this first.
             change_upstream_pr(upstream_pr_number, 'opened', pull_request['title'], steps)
-            # Retrieve the set of commits that need to be transplanted.
-            commits = fetch_upstreamable_commits(pull_request, steps)
             # Push the relevant changes to the upstream branch.
-            create_or_update_branch_for_pr(pr_number, commits, pre_commit_callback, steps)
+            create_or_update_branch_for_pr(pull_request, pre_commit_callback, steps)
             extra_comment = 'Transplanted upstreamable changes to existing PR.'
         else:
             # Close the upstream PR, since would contain no changes otherwise.
@@ -431,10 +407,8 @@ def process_new_pr_contents(config, pull_request, pre_commit_callback, steps):
                       '%s#%s' % (config['wpt_repo'], upstream_pr_number),
                       extra_comment, steps)
     elif is_upstreamable:
-        # Retrieve the set of commits that need to be transplanted.
-        commits = fetch_upstreamable_commits(pull_request, steps)
         # Push the relevant changes to a new upstream branch.
-        branch = create_or_update_branch_for_pr(pr_number, commits, pre_commit_callback, steps)
+        branch = create_or_update_branch_for_pr(pull_request, pre_commit_callback, steps)
         # TODO: extract the non-checklist/reviewable parts of the pull request body
         #       and add it to the upstream body.
         body = "Reviewed in %s." % (GITHUB_PR_URL % (config['servo_repo'], pr_number))

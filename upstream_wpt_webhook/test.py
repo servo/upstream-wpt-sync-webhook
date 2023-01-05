@@ -107,8 +107,8 @@ for test in git_tests:
     for commit in test['commits']:
         with open(commit['diff']) as f:
             commit['diff'] = f.read()
-    pr_number = test['pr_number']
-    _create_or_update_branch_for_pr(config, pr_number, test['commits'], None,
+    pull_request = {'number': test['pr_number']}
+    _create_or_update_branch_for_pr(config, pull_request, test['commits'], None,
                                     partial(git_callback, test))
 
 print('=' * 80)

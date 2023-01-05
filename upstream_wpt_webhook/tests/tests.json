@@ -4,7 +4,6 @@
         "payload": "new_pr.json",
         "existing_prs": {},
         "expected": [
-            "FetchUpstreamableStep:1",
             "CreateOrUpdateBranchForPRStep:1:servo_export_18746",
             "OpenUpstreamPRStep",
             "CommentStep:Opened new PR"
@@ -16,7 +15,6 @@
         "diff": "move-into-wpt.diff",
         "existing_prs": {},
         "expected": [
-            "FetchUpstreamableStep:1",
             "CreateOrUpdateBranchForPRStep:1:servo_export_18746",
             "OpenUpstreamPRStep",
             "CommentStep:Opened new PR"
@@ -28,7 +26,6 @@
         "diff": [["move-into-wpt.diff", "Fernando Jiménez Moreno", "foo@bar.com", "ééééé"]],
         "existing_prs": {},
         "expected": [
-            "FetchUpstreamableStep:1",
             "CreateOrUpdateBranchForPRStep:1:servo_export_18746",
             "OpenUpstreamPRStep",
             "CommentStep:Opened new PR"
@@ -40,7 +37,6 @@
         "diff": "move-out-of-wpt.diff",
         "existing_prs": {},
         "expected": [
-            "FetchUpstreamableStep:1",
             "CreateOrUpdateBranchForPRStep:1:servo_export_18746",
             "OpenUpstreamPRStep",
             "CommentStep:Opened new PR"
@@ -65,7 +61,6 @@
         "existing_prs": {"servo_export_18746": 1},
         "expected": [
             "ChangeUpstreamPRStep:1:opened",
-            "FetchUpstreamableStep:1",
             "CreateOrUpdateBranchForPRStep:1:servo_export_18746",
             "CommentStep:Transplanted upstreamable"
         ]
@@ -103,7 +98,6 @@
         "existing_prs": {"servo_export_19612": 10},
         "expected": [
             "ChangeUpstreamPRStep:10:opened",
-            "FetchUpstreamableStep:1",
             "CreateOrUpdateBranchForPRStep:1:servo_export_19612",
             "CommentStep:Transplanted upstreamable changes"
         ]
@@ -125,7 +119,6 @@
         "diff": "18746.diff",
         "existing_prs": {},
         "expected": [
-            "FetchUpstreamableStep:1",
             "CreateOrUpdateBranchForPRStep:1:servo_export_19612",
             "OpenUpstreamPRStep",
             "CommentStep:Opened new PR"
@@ -137,7 +130,6 @@
         "diff": ["18746.diff", "non-wpt.diff", "wpt.diff"],
         "existing_prs": {},
         "expected": [
-            "FetchUpstreamableStep:2",
             "CreateOrUpdateBranchForPRStep:2:servo_export_19612",
             "OpenUpstreamPRStep",
             "CommentStep:Opened new PR"
