@@ -186,12 +186,6 @@ for (i, test) in enumerate(filter(lambda x: not x.get('disabled', False), tests)
     def callback(step):
         global executed
         executed += [step.name]
-    def error_callback(dir_name):
-        #print('saved error snapshot: %s' % dir_name)
-        with open(os.path.join(dir_name, "exception")) as f:
-            print(f.read())
-        import shutil
-        shutil.rmtree(dir_name)
     def pre_commit_callback():
         commit = pr_commits(test, pull_request).pop(0)
         last_commit = git(["log", "-1", "--format=%an %ae %s"], cwd=config['wpt_path']).rstrip()
@@ -201,7 +195,6 @@ for (i, test) in enumerate(filter(lambda x: not x.get('disabled', False), tests)
     result = process_and_run_steps(config,
                                    payload,
                                    step_callback=callback,
-                                   error_callback=error_callback,
                                    pre_commit_callback=pre_commit_callback)
     server.shutdown()
     if result and all(map(lambda values: values[0] == values[1]

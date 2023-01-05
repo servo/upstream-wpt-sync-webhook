@@ -462,16 +462,6 @@ def process_json_payload(config, payload, pre_commit_callback):
     return steps
 
 
-def save_snapshot(payload, exception_info):
-    name = 'error-snapshot-%s' % int(round(time.time() * 1000))
-    os.mkdir(name)
-    with open(os.path.join(name, 'payload.json'), 'w') as f:
-        f.write(json.dumps(payload, indent=2))
-    with open(os.path.join(name, 'exception'), 'w') as f:
-        f.write(''.join(exception_info))
-    return name
-
-
 def process_and_run_steps(config, payload, step_callback=None, error_callback=None, pre_commit_callback=None):
     try:
         steps = process_json_payload(config, payload, pre_commit_callback)
@@ -480,10 +470,9 @@ def process_and_run_steps(config, payload, step_callback=None, error_callback=No
             if step_callback:
                 step_callback(step)
         return True
-    except:
-        exc_type, exc_value, exc_traceback = sys.exc_info()
-        info = traceback.format_exception(exc_type, exc_value, exc_traceback)
-        dir_name = save_snapshot(payload, info)
+    except Exception as exception:
+        print(payload)
+        traceback.print_exception(exception)
         if error_callback:
-            error_callback(dir_name)
+            error_callback()
         return False
