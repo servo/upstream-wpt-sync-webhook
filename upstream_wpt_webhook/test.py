@@ -1,3 +1,4 @@
+import locale
 import os
 import subprocess
 import sys
@@ -14,11 +15,12 @@ import threading
 import time
 import tempfile
 
+TESTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests")
+
 def setup_mock_repo(tmp_dir, repo_name):
     print(f"Setting up {repo_name} Git repositry")
-    mock_repo = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests", repo_name)
     repo_path = os.path.join(tmp_dir, repo_name)
-    subprocess.run(["cp", "-R", "-p", mock_repo, tmp_dir])
+    subprocess.run(["cp", "-R", "-p", os.path.join(TESTS_DIR, repo_name), tmp_dir])
     git(["init", "-b", "master"], cwd=repo_path)
     git(["add", "."], cwd=repo_path)
     git(["commit", "-a",
@@ -29,6 +31,39 @@ def setup_mock_repo(tmp_dir, repo_name):
         env={'GIT_COMMITTER_NAME': 'Fake', 'GIT_COMMITTER_EMAIL': 'fake@fake.com'}
     )
     return repo_path
+
+
+def pr_commits(test, pull_request):
+    def fake_commit_data(filename):
+        return [filename, "tmp author", "tmp@tmp.com", "tmp commit message"]
+
+    if 'diff' in test:
+        if isinstance(test['diff'], list):
+            return list(map(lambda d: fake_commit_data(d) if not isinstance(d, list) else d,
+                            test['diff']))
+        diff_file = test['diff']
+    else:
+        diff_file = str(pull_request['number']) + '.diff'
+    return [fake_commit_data(diff_file)]
+
+
+def setup_servo_repository_with_mock_pr_data(config, test, pull_request):
+    servo_path = config["servo_path"]
+
+    # Clean up any old files.
+    first_commit_hash = git(["rev-list", "HEAD"], cwd=servo_path).splitlines()[-1]
+    git(["reset", "--hard", first_commit_hash], cwd=servo_path)
+    git(["clean", "-fxd"], cwd=servo_path)
+
+    # Apply each commit to the repository.
+    for commit in pr_commits(test, pull_request):
+        patch_file, author, email, message = commit
+        git(["apply", os.path.join(TESTS_DIR, patch_file)], cwd=servo_path)
+        git(["add", "."], cwd=servo_path)
+        git(["commit", "-a", "--author", f"{author} <{email}>", "-m", message],
+            cwd=config['servo_path'],
+            env={'GIT_COMMITTER_NAME': author.encode(locale.getpreferredencoding()),
+                 'GIT_COMMITTER_EMAIL': email})
 
 
 def git_callback(test, git):
@@ -113,28 +148,6 @@ class APIServerThread(object):
                 break
         #print('Stopped API server on port ' + str(self.port))
 
-def pr_diff_files(test, pull_request):
-    def fake_commit_data(filename):
-        return [filename, "tmp author", "tmp@tmp.com", "tmp commit message"]
-
-    if 'diff' in test:
-        if isinstance(test['diff'], list):
-            return list(map(lambda d: fake_commit_data(d) if not isinstance(d, list) else d,
-                            test['diff']))
-        diff_file = test['diff']
-    else:
-        diff_file = str(pull_request['number']) + '.diff'
-    return [fake_commit_data(diff_file)]
-
-
-def get_pr_diff(test, pull_request):
-    diff_files = pr_diff_files(test, pull_request)
-    diffs = []
-    for diff_file_props in diff_files:
-        with open(os.path.join('tests', diff_file_props[0])) as f:
-            diffs += [f.read()]
-    return '\n'.join(diffs)
-
 
 with open('tests.json') as f:
     tests = json.loads(f.read())
@@ -145,7 +158,6 @@ def make_api_config(config, test, payload):
         pr_database[(branch_head_for_upstream(config, branch), 'master')] = pr_number
 
     api_config = {
-        "diff_files": pr_diff_files(test, payload["pull_request"]),
         "servo_path": config["servo_path"],
         "pr_database": pr_database
     }
@@ -160,6 +172,10 @@ for (i, test) in enumerate(filter(lambda x: not x.get('disabled', False), tests)
     print('=' * 80)
     print(f'Running "{test["name"]}"'),
     print('=' * 80)
+
+    print(f'Mocking application of PR to servo.')
+    pull_request = payload['pull_request']
+    setup_servo_repository_with_mock_pr_data(config, test, pull_request);
 
     port = 9000 + i
     config['api'] = 'http://localhost:' + str(port)
@@ -176,19 +192,17 @@ for (i, test) in enumerate(filter(lambda x: not x.get('disabled', False), tests)
             print(f.read())
         import shutil
         shutil.rmtree(dir_name)
-    def pre_commit_callback(commits_to_check):
-        commit = commits_to_check.pop(0)
+    def pre_commit_callback():
+        commit = pr_commits(test, pull_request).pop(0)
         last_commit = git(["log", "-1", "--format=%an %ae %s"], cwd=config['wpt_path']).rstrip()
         expected = "%s %s %s" % (commit[1], commit[2], commit[3])
         assert last_commit == expected, "%s != %s" % (last_commit, expected)
-    commits = pr_diff_files(test, payload['pull_request'])
+
     result = process_and_run_steps(config,
                                    payload,
-                                   partial(get_pr_diff, test),
-                                   "master",
                                    step_callback=callback,
                                    error_callback=error_callback,
-                                   pre_commit_callback=partial(pre_commit_callback, commits))
+                                   pre_commit_callback=pre_commit_callback)
     server.shutdown()
     if result and all(map(lambda values: values[0] == values[1]
                           if ':' not in values[1] else values[0].startswith(values[1]),

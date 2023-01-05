@@ -5,7 +5,7 @@ import sys
 import tempfile
 
 from flask import Flask, request, jsonify, render_template, make_response, abort
-from sync import UPSTREAMABLE_PATH, git, get_filtered_diff
+from sync import UPSTREAMABLE_PATH, git
 
 try:
     xrange
@@ -17,7 +17,6 @@ exiting = False
 
 config = {
     'servo_path': None,
-    'diff_files': None,
     'upstreamable': {},
 }
 pr_database = {}
@@ -45,41 +44,6 @@ def ping():
         sys.exit()
     return ('pong', 200)
 
-
-def commits():
-    def make_commit(diff_file):
-        this_dir = os.path.abspath(os.path.dirname(__file__))
-
-        diff_file, author, email, message = diff_file
-
-        # Temporarily apply the diff to make a commit object that can be retrieved later
-        git(["apply", os.path.join(this_dir, 'tests', diff_file)],
-            cwd=config['servo_path'])
-        git(["add", "."], cwd=config['servo_path'])
-        git(["commit", "-a", "--author",
-             "%s <%s>" % (author, email),
-             "-m", message],
-            cwd=config['servo_path'],
-            env={'GIT_COMMITTER_NAME': author.encode(locale.getpreferredencoding()),
-                 'GIT_COMMITTER_EMAIL': email})
-        output = git(["log", "-1", "--oneline"], cwd=config['servo_path'])
-        sha = output.split()[0]
-        config['upstreamable'][sha] = (get_filtered_diff(config['servo_path'], sha) == '')
-        git(["reset", "--hard", "HEAD^"], cwd=config['servo_path'])
-
-        return {
-            "url": "/commit_metadata/" + sha,
-            "html_url": diff_file[:-5],  # strip trailing .diff
-            "sha": sha,
-            "commit": {
-                "author": {
-                    "name": author,
-                    "email": email,
-                },
-                "message": message,
-            },
-        }
-    return list(map(lambda x: make_commit(x), config['diff_files']))
 
 def commit_with_single_file(upstreamable):
     return {
@@ -112,12 +76,7 @@ def get_pull_requests(args):
 @app.route("/", defaults={'path': ''})
 @app.route("/<path:path>", methods=["POST","PATCH","GET", "DELETE", "PUT"])
 def catch_all(path):
-    if path.endswith('/commits'):
-        return (json.dumps(commits()), 200)
-    elif 'commit_metadata/' in path:
-        sha = path.split('/')[-1]
-        return (json.dumps(commit_with_single_file(config['upstreamable'][sha])), 200)
-    elif path.endswith('pulls') and request.method == 'POST':
+    if path.endswith('pulls') and request.method == 'POST':
         return (json.dumps(new_pull_request(request.json)), 200)
     elif path.endswith('pulls') and request.method == 'GET':
         return (json.dumps(get_pull_requests(request.args)), 200)

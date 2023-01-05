@@ -130,7 +130,7 @@
     },
     {
         "name": "synchronize new upstreamable PR multiple commits",
-        "payload": "synchronize.json",
+        "payload": "synchronize-multiple.json",
         "diff": ["18746.diff", "non-wpt.diff", "wpt.diff"],
         "existing_prs": {},
         "expected": [

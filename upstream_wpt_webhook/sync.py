@@ -323,64 +323,71 @@ def _comment_on_pr(config, pr_number, upstream_url, extra):
     return body
 
 
-def patch_contains_upstreamable_changes(patch_contents):
-    for line in patch_contents.splitlines():
-        if line.startswith("diff --git") and UPSTREAMABLE_PATH in line:
-            return True
-    return False
+def patch_contains_upstreamable_changes(config, pull_request):
+    output = git([
+        "diff",
+         f"HEAD~{pull_request['commits']}",
+        '--', UPSTREAMABLE_PATH
+    ], cwd=config["servo_path"])
+    return len(output) > 0
 
 
 class FetchUpstreamableStep(Step):
-    def __init__(self, pull_request, branch):
+    def __init__(self, pull_request):
         Step.__init__(self, 'FetchUpstreamableStep')
         self.pull_request = pull_request
-        self.branch = branch
 
     def provides(self):
         self.commits = AsyncValue()
         return {'commits': self.commits}
 
     def run(self, config):
-        commits = _fetch_upstreamable_commits(config, self.pull_request, self.branch)
+        commits = _fetch_upstreamable_commits(config, self.pull_request)
         self.name += ':%d' % len(commits)
         self.commits.resolve(commits)
 
 
-def fetch_upstreamable_commits(pull_request, branch, steps):
-    step = FetchUpstreamableStep(pull_request, branch)
+def fetch_upstreamable_commits(pull_request, steps):
+    step = FetchUpstreamableStep(pull_request)
     steps += [step]
     return step.provides()['commits']
 
 
-def _fetch_upstreamable_commits(config, pull_request, branch):
-    commit_data = authenticated(config, 'GET', pull_request["commits_url"]).json()
+def _fetch_upstreamable_commits(config, pull_request):
+    path = config["servo_path"]
+    number_of_commits = pull_request["commits"]
+
+    commit_shas = git(["log", "--pretty=%H", f"-{number_of_commits}"], cwd=path).splitlines()
     filtered_commits = []
-    for commit in commit_data:
-        diff = get_filtered_diff(config["servo_path"], commit['sha'])
+    for sha in commit_shas:
+        # Specifying the path here does a few things. First, it exludes any
+        # changes that do not touch WPT files at all. Secondly, when a file is
+        # moved in or out of the WPT directory the filename which is outside the
+        # directory becomes /dev/null and the change becomes an addition or
+        # deletion. This makes the patch usable on the WPT repository itself.
+        # TODO: If we could cleverly parse and manipulate the full commit diff
+        # we could avoid cloning the servo repository altogether and only
+        # have to fetch the commit diffs from GitHub.
+        diff = git(["show", "--binary", "--format=%b", sha, '--',  UPSTREAMABLE_PATH], cwd=path)
+
         # Retrieve the diff of any changes to files that are relevant
         if diff:
             # Create an object that contains everything necessary to transplant this
             # commit to another repository.
             filtered_commits += [{
-                'author': "%s <%s>" % (commit['commit']['author']['name'],
-                                       commit['commit']['author']['email']),
-                'message': commit['commit']['message'],
+                'author': git(["show", "-s", "--pretty=%an <%ae>", sha], cwd=path),
+                'message': git(["show", "-s", "--pretty=%B", sha], cwd=path),
                 'diff': diff,
             }]
     return filtered_commits
 
 
-def get_filtered_diff(path, commit):
-    return git(["show", "--binary", "--format=%b", commit, '--',  UPSTREAMABLE_PATH], cwd=path)
-
-
-def process_new_pr_contents(config, pull_request, pr_diff, branch, pre_commit_callback, steps):
+def process_new_pr_contents(config, pull_request, pre_commit_callback, steps):
     pr_number = str(pull_request['number'])
     upstream_pr_number = get_upstream_pr_number_from_pr(config, pull_request)
+    is_upstreamable = patch_contains_upstreamable_changes(config, pull_request)
 
-    # Is this updating an existing pull request?
     if upstream_pr_number:
-        is_upstreamable = patch_contains_upstreamable_changes(pr_diff)
         if is_upstreamable:
             # In case this is adding new upstreamable changes to a PR that was closed
             # due to a lack of upstreamable changes, force it to be reopened.
@@ -388,7 +395,7 @@ def process_new_pr_contents(config, pull_request, pr_diff, branch, pre_commit_ca
             # to do this first.
             change_upstream_pr(upstream_pr_number, 'opened', pull_request['title'], steps)
             # Retrieve the set of commits that need to be transplanted.
-            commits = fetch_upstreamable_commits(pull_request, branch, steps)
+            commits = fetch_upstreamable_commits(pull_request, steps)
             # Push the relevant changes to the upstream branch.
             upstream(pr_number, commits, pre_commit_callback, steps)
             extra_comment = 'Transplanted upstreamable changes to existing PR.'
@@ -399,9 +406,9 @@ def process_new_pr_contents(config, pull_request, pr_diff, branch, pre_commit_ca
         comment_on_pr(pr_number,
                       '%s#%s' % (config['wpt_repo'], upstream_pr_number),
                       extra_comment, steps)
-    elif patch_contains_upstreamable_changes(pr_diff):
+    elif is_upstreamable:
         # Retrieve the set of commits that need to be transplanted.
-        commits = fetch_upstreamable_commits(pull_request, branch, steps)
+        commits = fetch_upstreamable_commits(pull_request, steps)
         # Push the relevant changes to a new upstream branch.
         branch = upstream(pr_number, commits, pre_commit_callback, steps)
         # TODO: extract the non-checklist/reviewable parts of the pull request body
@@ -439,15 +446,15 @@ def process_closed_pr(config, pull_request, steps):
         change_upstream_pr(upstream_pr_number, 'closed', pull_request['title'], steps)
 
 
-def process_json_payload(config, payload, diff_provider, branch, pre_commit_callback):
+def process_json_payload(config, payload, pre_commit_callback):
     pull_request = payload['pull_request']
     if NO_SYNC_SIGNAL in pull_request.get('body', ''):
         return []
 
     steps = []
     if payload['action'] in ['opened', 'synchronize', 'reopened']:
-        process_new_pr_contents(config, pull_request, diff_provider(pull_request),
-                                branch, pre_commit_callback, steps)
+        process_new_pr_contents(config, pull_request,
+                                pre_commit_callback, steps)
     elif payload['action'] == 'edited' and 'title' in payload['changes']:
         change_upstream_pr_title(config, pull_request, steps)
     elif payload['action'] == 'closed':
@@ -455,22 +462,19 @@ def process_json_payload(config, payload, diff_provider, branch, pre_commit_call
     return steps
 
 
-def save_snapshot(payload, exception_info, diff_provider):
+def save_snapshot(payload, exception_info):
     name = 'error-snapshot-%s' % int(round(time.time() * 1000))
     os.mkdir(name)
     with open(os.path.join(name, 'payload.json'), 'w') as f:
         f.write(json.dumps(payload, indent=2))
     with open(os.path.join(name, 'exception'), 'w') as f:
         f.write(''.join(exception_info))
-    with open(os.path.join(name, 'pr.diff'), 'w') as f:
-        f.write(diff_provider(payload['pull_request']))
     return name
 
 
-def process_and_run_steps(config, payload, provider, branch,
-                          step_callback=None, error_callback=None, pre_commit_callback=None):
+def process_and_run_steps(config, payload, step_callback=None, error_callback=None, pre_commit_callback=None):
     try:
-        steps = process_json_payload(config, payload, provider, branch, pre_commit_callback)
+        steps = process_json_payload(config, payload, pre_commit_callback)
         for step in steps:
             step.run(config)
             if step_callback:
@@ -479,7 +483,7 @@ def process_and_run_steps(config, payload, provider, branch,
     except:
         exc_type, exc_value, exc_traceback = sys.exc_info()
         info = traceback.format_exception(exc_type, exc_value, exc_traceback)
-        dir_name = save_snapshot(payload, info, provider)
+        dir_name = save_snapshot(payload, info)
         if error_callback:
             error_callback(dir_name)
         return False
