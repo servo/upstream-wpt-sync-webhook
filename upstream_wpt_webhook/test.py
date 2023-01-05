@@ -1,3 +1,4 @@
+import itertools
 import locale
 import os
 import subprocess
@@ -198,14 +199,18 @@ for (i, test) in enumerate(filter(lambda x: not x.get('disabled', False), tests)
                                    step_callback=callback,
                                    pre_commit_callback=pre_commit_callback)
     server.shutdown()
-    if result and all(map(lambda values: values[0] == values[1]
-                          if ':' not in values[1] else values[0].startswith(values[1]),
-               zip(executed, test['expected']))):
-        print('=' * 80)
+
+
+    expected = test['expected']
+    equal = len(expected) == len(executed) and all([
+        v[0] == v[1] or (':' in v[0] and v[0].startswith(v[1]))
+        for v in zip(executed, expected)
+    ])
+
+    print('=' * 80)
+    if equal:
         print(f'Test result: PASSED'),
-        print('=' * 80)
     else:
-        print('=' * 80)
         print(f'Test result: FAILED'),
         print()
         print(executed)
@@ -213,4 +218,4 @@ for (i, test) in enumerate(filter(lambda x: not x.get('disabled', False), tests)
         print(test['expected'])
         print('=' * 80)
 
-        assert(executed == test['expected'])
+    assert(equal)
