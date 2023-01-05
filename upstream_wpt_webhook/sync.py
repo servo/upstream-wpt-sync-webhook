@@ -389,6 +389,11 @@ def process_new_pr_contents(config, pull_request, pre_commit_callback, steps):
     upstream_pr_number = get_upstream_pr_number_from_pr(config, pull_request)
     is_upstreamable = patch_contains_upstreamable_changes(config, pull_request)
 
+    print("Processing new PR contents:")
+    print(f"  → PR is upstreamable: '{is_upstreamable}'")
+    if upstream_pr_number:
+        print(f"  → Detected existing upstream PR #{upstream_pr_number}")
+
     if upstream_pr_number:
         if is_upstreamable:
             # In case this is adding new upstreamable changes to a PR that was closed
@@ -423,6 +428,7 @@ def process_new_pr_contents(config, pull_request, pre_commit_callback, steps):
 
 
 def change_upstream_pr_title(config, pull_request, steps):
+    print("Processing PR title change")
     upstream_pr_number = get_upstream_pr_number_from_pr(config, pull_request)
     if upstream_pr_number:
         change_upstream_pr(upstream_pr_number, 'open', pull_request['title'], steps)
@@ -434,6 +440,7 @@ def change_upstream_pr_title(config, pull_request, steps):
 
 
 def process_closed_pr(config, pull_request, steps):
+    print("Processing closed PR")
     upstream_pr_number = get_upstream_pr_number_from_pr(config, pull_request)
     if not upstream_pr_number:
         # If we don't recognize this PR, it never contained upstreamable changes.
