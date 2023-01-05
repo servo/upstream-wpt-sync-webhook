@@ -101,7 +101,7 @@ tmp_dir = tempfile.mkdtemp()
 config['servo_path'] = setup_mock_repo(tmp_dir, "servo-mock")
 config['wpt_path'] = setup_mock_repo(tmp_dir, "wpt-mock")
 
-with open('git_tests.json') as f:
+with open(os.path.join(TESTS_DIR, 'git_tests.json')) as f:
     git_tests = json.loads(f.read())
 for test in git_tests:
     for commit in test['commits']:
@@ -151,7 +151,7 @@ class APIServerThread(object):
         #print('Stopped API server on port ' + str(self.port))
 
 
-with open('tests.json') as f:
+with open(os.path.join(TESTS_DIR, 'tests.json')) as f:
     tests = json.loads(f.read())
 
 def make_api_config(config, test, payload):
