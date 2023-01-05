@@ -1,10 +1,10 @@
 import os
+import subprocess
 import sys
 sys.path.append(os.path.abspath(os.path.dirname(__file__)))
 
 import copy
 from functools import partial
-import hook
 import json
 import requests
 import sync
@@ -14,24 +14,22 @@ import threading
 import time
 import tempfile
 
-base_wpt_dir = tempfile.mkdtemp()
+def setup_mock_repo(tmp_dir, repo_name):
+    print(f"Setting up {repo_name} Git repositry")
+    mock_repo = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests", repo_name)
+    repo_path = os.path.join(tmp_dir, repo_name)
+    subprocess.run(["cp", "-R", "-p", mock_repo, tmp_dir])
+    git(["init", "-b", "master"], cwd=repo_path)
+    git(["add", "."], cwd=repo_path)
+    git(["commit", "-a",
+         "-m", "Initial commit",
+         "--author", "Fake <fake@fake.com>",
+        ],
+        cwd=repo_path,
+        env={'GIT_COMMITTER_NAME': 'Fake', 'GIT_COMMITTER_EMAIL': 'fake@fake.com'}
+    )
+    return repo_path
 
-git(["clone", "--depth=1", f"https://github.com/jdm/web-platform-tests-mock.git", "wpt-mock"], cwd=base_wpt_dir)
-git(["clone", "--depth=1", f"https://github.com/jdm/servo-mock.git", "servo-mock"], cwd=base_wpt_dir)
-
-config = {
-    'servo_repo': 'servo/servo',
-    'wpt_repo': 'wpt/wpt',
-    'downstream_wpt_repo': 'servo-wpt-sync/wpt',
-    'username': 'servo-wpt-sync',
-    'port': 5000,
-    'token': '',
-    'api': 'http://localhost:9000',
-    'override_host': 'http://localhost:9000',
-    'suppress_force_push': True,
-    'wpt_path': os.path.join(base_wpt_dir, "wpt-mock"),
-    'servo_path': os.path.join(base_wpt_dir, "servo-mock"),
-}
 
 def git_callback(test, git):
     commits = git(["log", "--oneline", "-%d" % len(test['commits'])], cwd=config['wpt_path'])
@@ -46,6 +44,27 @@ def git_callback(test, git):
         print(map(lambda s: s['message'], test['commits']))
         sys.exit(1)
 
+
+config = {
+    'servo_repo': 'servo/servo',
+    'wpt_repo': 'wpt/wpt',
+    'downstream_wpt_repo': 'servo-wpt-sync/wpt',
+    'username': 'servo-wpt-sync',
+    'port': 5000,
+    'token': '',
+    'api': 'http://localhost:9000',
+    'override_host': 'http://localhost:9000',
+    'suppress_force_push': True,
+}
+
+print('=' * 80)
+print(f'Setting up mock repositories and running Git tests'),
+print('=' * 80)
+
+tmp_dir = tempfile.mkdtemp()
+config['servo_path'] = setup_mock_repo(tmp_dir, "servo-mock")
+config['wpt_path'] = setup_mock_repo(tmp_dir, "wpt-mock")
+
 with open('git_tests.json') as f:
     git_tests = json.loads(f.read())
 for test in git_tests:
@@ -54,7 +73,10 @@ for test in git_tests:
             commit['diff'] = f.read()
     pr_number = test['pr_number']
     _upstream(config, pr_number, test['commits'], None, partial(git_callback, test))
-print("Successfully ran git upstreaming tests.")
+
+print('=' * 80)
+print(f'Result: PASSED'),
+print('=' * 80)
 
 def wait_for_server(port):
     # Wait for server to finish setting up before continuing
@@ -184,56 +206,3 @@ for (i, test) in enumerate(filter(lambda x: not x.get('disabled', False), tests)
         print('=' * 80)
 
         assert(executed == test['expected'])
-
-class ServerThread(object):
-    def __init__(self, config):
-        #print('Starting server thread on port ' + str(config['port']))
-        self.port = config['port']
-        thread = threading.Thread(target=self.run, args=(config,))
-        thread.daemon = True
-        thread.start()
-        wait_for_server(config['port'])
-
-    def run(self, config):
-        hook.main(config)
-
-    def shutdown(self):
-        r = requests.post('http://localhost:%d/shutdown' % self.port)
-        assert(r.status_code == 204)
-
-        # Wait for the server to stop responding to ping requests
-        while True:
-            try:
-                r = requests.get(f'http://localhost:{self.port}/ping')
-                time.sleep(0.5)
-            except:
-                break
-
-for (i, test) in enumerate(tests):
-    print()
-    print('=' * 80)
-    print(f'Running test "{test["name"]}" via webhook'),
-    print('=' * 80)
-
-    this_config = copy.deepcopy(config)
-    this_config['port'] += i
-    port += i
-    this_config['api'] = 'http://localhost:' + str(port)
-    this_config['override_host'] = this_config['api']
-    server = ServerThread(this_config)
-
-    with open(os.path.join('tests', test['payload'])) as f:
-        payload = f.read()
-
-    api_server = APIServerThread(make_api_config(config, test, json.loads(payload)), port)
-
-    r = requests.post('http://localhost:' + str(this_config['port']) + '/test', data={'payload': payload})
-    if r.status_code != 204:
-        print(r.status_code)
-    assert(r.status_code == 204)
-    server.shutdown()
-    api_server.shutdown()
-
-    print('=' * 80)
-    print(f'Result: PASSED'),
-    print('=' * 80)

@@ -67,7 +67,7 @@ def authenticated(config, method, url, json=None):
     url = urlparse.urlunsplit(['', '', parts[2], parts[3], parts[4]])
     url = urlparse.urljoin(config['api'], url)
 
-    print('fetching %s' % url)
+    print('  → Request: %s' % url)
     response = s.request(method, url, json=json)
     if int(response.status_code / 100) != 2:
         raise ValueError('got unexpected %d response: %s' % (response.status_code, response.text))
@@ -76,35 +76,15 @@ def authenticated(config, method, url, json=None):
 
 def git(*args, **kwargs):
     command_line = ["git"] + list(*args)
-    #print(' '.join(map(lambda x: ('"%s"' % x) if ' ' in x else x, command_line)))
+    cwd = kwargs['cwd']
+    print(f"  → Execution (cwd='{cwd}'): {' '.join(command_line)}")
+
     try:
-        out = subprocess.check_output(command_line, cwd=kwargs['cwd'], env=kwargs.get('env', {}))
+        out = subprocess.check_output(command_line, cwd=cwd, env=kwargs.get('env', {}))
         return out.decode('utf-8')
     except subprocess.CalledProcessError as e:
         print(e.output)
         raise e
-
-
-def get_filtered_diff(path, commit, branch=None):
-    tries = 1
-    while True:
-        try:
-            # Retrieve the diff of any changes to files that are relevant
-            return git(["show", "--binary", "--format=%b", commit, '--',  UPSTREAMABLE_PATH],
-                       cwd=path)
-        except Exception as e:
-            if tries < 6 and branch:
-                # Wait 10 seconds, then try fetching the branch again
-                time.sleep(10)
-                fetch_upstream_branch(path, branch)
-                tries += 1
-                continue
-            raise e
-
-
-def fetch_upstream_branch(path, branch):
-    # Retrieve all of the commits from the upstream pull request
-    return git(["fetch", "origin", branch], cwd=path)
 
 
 class UpstreamStep(Step):
@@ -137,13 +117,8 @@ def _upstream(config, servo_pr_number, commits, pre_commit_callback, pre_delete_
         PATCH_FILE = 'tmp.patch'
         STRIP_COUNT = UPSTREAMABLE_PATH.count('/') + 1
 
-        # Ensure WPT clone is up to date.
-        wpt_path = config['wpt_path']
-        git(["checkout", "master"], cwd=wpt_path)
-        git(["fetch", "origin", "master", "--depth", "1"], cwd=wpt_path)
-        git(["reset", "--hard", "origin/master"], cwd=wpt_path)
-
         # Create a new branch with a unique name that is consistent between updates of the same PR
+        wpt_path = config['wpt_path']
         git(["checkout", "-b", branch_name], cwd=wpt_path)
 
         patch_path = os.path.join(wpt_path, PATCH_FILE)
@@ -378,12 +353,11 @@ def fetch_upstreamable_commits(pull_request, branch, steps):
 
 
 def _fetch_upstreamable_commits(config, pull_request, branch):
-    r = authenticated(config, 'GET', pull_request["commits_url"])
-    commit_data = r.json()
+    commit_data = authenticated(config, 'GET', pull_request["commits_url"]).json()
     filtered_commits = []
-    fetch_upstream_branch(config['servo_path'], branch)
     for commit in commit_data:
-        diff = get_filtered_diff(config['servo_path'], commit['sha'], branch)
+        diff = get_filtered_diff(config["servo_path"], commit['sha'])
+        # Retrieve the diff of any changes to files that are relevant
         if diff:
             # Create an object that contains everything necessary to transplant this
             # commit to another repository.
@@ -394,6 +368,10 @@ def _fetch_upstreamable_commits(config, pull_request, branch):
                 'diff': diff,
             }]
     return filtered_commits
+
+
+def get_filtered_diff(path, commit):
+    return git(["show", "--binary", "--format=%b", commit, '--',  UPSTREAMABLE_PATH], cwd=path)
 
 
 def process_new_pr_contents(config, pull_request, pr_diff, branch, pre_commit_callback, steps):
