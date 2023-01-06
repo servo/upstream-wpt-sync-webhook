@@ -47,11 +47,16 @@ class Step:
     def __init__(self, name):
         self.name = name
 
-    def provides(self):
-        return {}
+    def provides(self) -> Optional[AsyncValue]:
+        return None
 
     def run(self):
         pass
+
+    @classmethod
+    def add(cls, steps: list[Step], *args) -> Optional[AsyncValue]:
+        steps.append(cls(*args))
+        return steps[-1].provides()
 
 
 class AsyncValue:
@@ -83,10 +88,10 @@ class CreateOrUpdateBranchForPRStep(Step):
         Step.__init__(self, 'CreateOrUpdateBranchForPRStep')
         self.pull_request = pull_request
         self.pre_commit_callback = pre_commit_callback
+        self.branch = AsyncValue()
 
     def provides(self):
-        self.branch = AsyncValue()
-        return {'branch': self.branch}
+        return self.branch
 
     def run(self, context: RunContext):
         commits = _fetch_upstreamable_commits(context, self.pull_request)
@@ -94,11 +99,6 @@ class CreateOrUpdateBranchForPRStep(Step):
         self.branch.resolve(branch)
         self.name += ':%d:%s' % (len(commits), branch)
 
-
-def create_or_update_branch_for_pr(pull_request, pre_commit_callback, steps):
-    step = CreateOrUpdateBranchForPRStep(pull_request, pre_commit_callback)
-    steps += [step]
-    return step.provides()['branch']
 
 def _fetch_upstreamable_commits(context: RunContext, pull_request):
     path = context.servo_path
@@ -200,10 +200,6 @@ class RemoveBranchForPRStep(Step):
             git(["push", "origin", "--delete", branch_name], cwd=context.wpt_path)
 
 
-def remove_branch_for_pr(pull_request, steps):
-    steps += [RemoveBranchForPRStep(pull_request)]
-
-
 class ChangeUpstreamPRStep(Step):
     def __init__(self, pull_request: PullRequest, state: str, title: str):
         Step.__init__(self, 'ChangeUpstreamPRStep:%s:%s:%s' % (pull_request.number, state, title) )
@@ -215,11 +211,6 @@ class ChangeUpstreamPRStep(Step):
         self.pull_request.change(state=self.state, title=self.title)
 
 
-def change_upstream_pr(pull_request: PullRequest, state, title, steps):
-    steps += [ChangeUpstreamPRStep(pull_request, state, title)]
-
-
-
 class MergeUpstreamStep(Step):
     def __init__(self, pull_request: PullRequest):
         Step.__init__(self, 'MergeUpstreamStep:' + str(pull_request.number))
@@ -229,9 +220,6 @@ class MergeUpstreamStep(Step):
         self.pull_request.remove_label('do not merge yet')
         self.pull_request.merge()
 
-def merge_upstream_pr(pull_request: PullRequest, steps):
-    steps += [MergeUpstreamStep(pull_request)]
-
 
 class OpenUpstreamPRStep(Step):
     def __init__(self, title, branch, body):
@@ -239,10 +227,10 @@ class OpenUpstreamPRStep(Step):
         self.title = title
         self.branch = branch
         self.body = body
+        self.new_pr = AsyncValue()
 
     def provides(self):
-        self.new_pr = AsyncValue()
-        return {'pr': self.new_pr}
+        return self.new_pr
 
     def run(self, context: RunContext):
         pull_request = context.wpt.open_pull_request(
@@ -254,11 +242,6 @@ class OpenUpstreamPRStep(Step):
         pull_request.add_labels(['servo-export', 'do not merge yet'])
         self.new_pr.resolve(pull_request)
 
-
-def open_upstream_pr(title, branch, body, steps):
-    step = OpenUpstreamPRStep(title, branch, body)
-    steps += [step]
-    return step.provides()['pr']
 
 class DownstreamComment(AsyncValue):
     def __init__(self, upstream_pr: Union[PullRequest, AsyncValue], text):
@@ -284,11 +267,6 @@ class CommentStep(Step):
         else:
             self.pull_request.leave_comment(self.comment)
 
-def comment_on_pr(pull_request, comment, steps):
-    step = CommentStep(pull_request, comment)
-    steps += [step]
-
-
 
 def patch_contains_upstreamable_changes(context: RunContext, pull_request):
     output = git([
@@ -297,7 +275,6 @@ def patch_contains_upstreamable_changes(context: RunContext, pull_request):
         '--', UPSTREAMABLE_PATH
     ], cwd=context.servo_path)
     return len(output) > 0
-
 
 
 def process_new_pr_contents(context: RunContext, action_pr_data: dict,
@@ -312,36 +289,36 @@ def process_new_pr_contents(context: RunContext, action_pr_data: dict,
             # due to a lack of upstreamable changes, force it to be reopened.
             # Github refuses to reopen a PR that had a branch force pushed, so be sure
             # to do this first.
-            change_upstream_pr(upstream_pr, 'opened', action_pr_data['title'], steps)
+            ChangeUpstreamPRStep.add(steps, upstream_pr, 'opened', action_pr_data['title'])
             # Push the relevant changes to the upstream branch.
-            create_or_update_branch_for_pr(action_pr_data, pre_commit_callback, steps)
+            CreateOrUpdateBranchForPRStep.add(steps, action_pr_data, pre_commit_callback)
             extra_comment = 'Transplanted upstreamable changes to existing PR.'
         else:
             # Close the upstream PR, since would contain no changes otherwise.
-            comment_on_pr(upstream_pr, NO_UPSTREAMBLE_CHANGES_COMMENT, steps)
-            change_upstream_pr(upstream_pr, 'closed', action_pr_data['title'], steps)
-            remove_branch_for_pr(action_pr_data, steps)
+            CommentStep.add(steps, upstream_pr, NO_UPSTREAMBLE_CHANGES_COMMENT)
+            ChangeUpstreamPRStep.add(steps, upstream_pr, 'closed', action_pr_data['title'])
+            RemoveBranchForPRStep.add(steps, action_pr_data)
             extra_comment = 'No upstreamable changes; closed existing PR.'
 
-        comment_on_pr(servo_pr, DownstreamComment(upstream_pr, extra_comment), steps)
+        CommentStep.add(steps, servo_pr, DownstreamComment(upstream_pr, extra_comment))
     elif is_upstreamable:
         # Push the relevant changes to a new upstream branch.
-        branch = create_or_update_branch_for_pr(action_pr_data, pre_commit_callback, steps)
+        branch = CreateOrUpdateBranchForPRStep.add(steps, action_pr_data, pre_commit_callback)
         # Create a pull request against the upstream repository for the new branch.
         # TODO: extract the non-checklist/reviewable parts of the pull request body
         #       and add it to the upstream body.
-        upstream_pr = open_upstream_pr(action_pr_data['title'], branch, f"Reviewed in {servo_pr}", steps)
+        upstream_pr = OpenUpstreamPRStep.add(steps, action_pr_data['title'], branch, f"Reviewed in {servo_pr}")
         # Leave a comment to the new pull request in the original pull request.
         comment = DownstreamComment(upstream_pr, 'Opened new PR for upstreamable changes.')
-        comment_on_pr(servo_pr, comment, steps)
+        CommentStep.add(steps, servo_pr, comment)
 
 
 def change_upstream_pr_title(context: RunContext, action_pr_data: dict, servo_pr: PullRequest, upstream_pr: PullRequest, steps):
     print("Changing upstream PR title")
     if upstream_pr:
-        change_upstream_pr(upstream_pr, 'open', action_pr_data['title'], steps)
+        ChangeUpstreamPRStep.add(steps, upstream_pr, 'open', action_pr_data['title'])
         comment = DownstreamComment(upstream_pr, 'PR title changed; changed existing PR.')
-        comment_on_pr(servo_pr, comment, steps)
+        CommentStep.add(steps, servo_pr, comment)
 
 
 def process_closed_pr(context: RunContext, action_pr_data: dict, servo_pr: PullRequest, upstream_pr: PullRequest, steps):
@@ -353,12 +330,12 @@ def process_closed_pr(context: RunContext, action_pr_data: dict, servo_pr: PullR
     if action_pr_data['merged']:
         # Since the upstreamable changes have now been merged locally, merge the
         # corresponding upstream PR.
-        merge_upstream_pr(upstream_pr, steps)
+        MergeUpstreamStep.add(steps, upstream_pr)
     else:
         # If a PR with upstreamable changes is closed without being merged, we
         # don't want to merge the changes upstream either.
-        change_upstream_pr(upstream_pr, 'closed', action_pr_data['title'], steps)
-        remove_branch_for_pr(action_pr_data, steps)
+        ChangeUpstreamPRStep.add(steps, upstream_pr, 'closed', action_pr_data['title'])
+        RemoveBranchForPRStep.add(steps, action_pr_data)
 
 
 def process_json_payload(context: RunContext, payload, pre_commit_callback):
