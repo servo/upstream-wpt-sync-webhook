@@ -1,28 +1,21 @@
-import copy
-from functools import partial
-import json
+# This allows using types that are defined later in the file.
+from __future__ import annotations
+
 import os
-import requests
-import sys
 import subprocess
-import time
 import traceback
-import typing
 
-try:
-    import urlparse
-except ImportError:
-    from urllib import parse as urlparse
+from typing import Optional
+from typing import Union
+from github import GithubRepository, PullRequest
 
-GITHUB_PR_URL = "https://github.com/%s/pull/%s"
-GITHUB_COMMENTS_URL = "repos/%s/issues/%s/comments"
-GITHUB_PULLS_URL = "repos/%s/pulls"
 UPSTREAMABLE_PATH = 'tests/wpt/web-platform-tests/'
 NO_SYNC_SIGNAL = '[no-wpt-sync]'
-
 NO_UPSTREAMBLE_CHANGES_COMMENT = "Downstream PR no longer contains any upstreamable changes. Closing PR."
 DOWNSTREAM_COMMENT = "%s\n\nCompleted upstream sync of web-platform-test changes at %s"
 
+def wpt_branch_name_from_servo_pr_number(servo_pr_number):
+    return f"servo_export_{servo_pr_number}"
 
 class RunContext:
     """
@@ -45,19 +38,10 @@ class RunContext:
         self.github_email = config['github_email']
         self.github_name = config['github_name']
 
-    def url_for_wpt_upstream_pulls(self):
-        return GITHUB_PULLS_URL % self.wpt_repo
+        self.servo = GithubRepository(self, self.servo_repo)
+        self.wpt = GithubRepository(self, self.wpt_repo)
+        self.downstream_wpt = GithubRepository(self, self.downstream_wpt_repo)
 
-
-def branch_head_for_upstream(context: RunContext, branch):
-    downstream_wpt_org = context.downstream_wpt_repo.split('/')[0]
-    if downstream_wpt_org != context.wpt_repo.split('/')[0]:
-        return f"{downstream_wpt_org}:{branch}"
-    else:
-        return branch
-
-def wpt_branch_name_from_servo_pr_number(servo_pr_number):
-    return f"servo_export_{servo_pr_number}"
 
 class Step:
     def __init__(self, name):
@@ -79,27 +63,6 @@ class AsyncValue:
     def value(self):
         assert(self._value != None)
         return self._value
-
-
-def authenticated(context: RunContext, method, url, json=None):
-    s = requests.Session()
-    if not method:
-        method = 'GET'
-    s.headers = {
-        'Authorization': f'token {context.github_api_token}',
-        'User-Agent': 'Servo web-platform-test sync service',
-    }
-
-    # Ensure that any URLs retrieved are rewritten to use the configured API host.
-    parts = urlparse.urlsplit(url)
-    url = urlparse.urlunsplit(['', '', parts[2], parts[3], parts[4]])
-    url = urlparse.urljoin(context.github_api_url, url)
-
-    print('  → Request: %s' % url)
-    response = s.request(method, url, json=json)
-    if int(response.status_code / 100) != 2:
-        raise ValueError('got unexpected %d response: %s' % (response.status_code, response.text))
-    return response
 
 
 def git(*args, **kwargs):
@@ -242,66 +205,32 @@ def remove_branch_for_pr(pull_request, steps):
 
 
 class ChangeUpstreamPRStep(Step):
-    def __init__(self, upstream, state, title):
-        Step.__init__(self, 'ChangeUpstreamPRStep:%s:%s:%s' % (upstream, state, title) )
-        self.upstream = upstream
+    def __init__(self, pull_request: PullRequest, state: str, title: str):
+        Step.__init__(self, 'ChangeUpstreamPRStep:%s:%s:%s' % (pull_request.number, state, title) )
+        self.pull_request = pull_request
         self.state = state
         self.title = title
 
     def run(self, context: RunContext):
-        _change_upstream_pr(context, self.upstream, self.state, self.title)
+        self.pull_request.change(state=self.state, title=self.title)
 
 
-def change_upstream_pr(upstream, state, title, steps):
-    steps += [ChangeUpstreamPRStep(upstream, state, title)]
+def change_upstream_pr(pull_request: PullRequest, state, title, steps):
+    steps += [ChangeUpstreamPRStep(pull_request, state, title)]
 
-def _change_upstream_pr(context: RunContext, upstream, state, title):
-    data = {
-        'state': state,
-        'title': title
-    }
-    return authenticated(context,
-                         'PATCH',
-                         context.url_for_wpt_upstream_pulls() + '/' + str(upstream),
-                         json=data)
 
 
 class MergeUpstreamStep(Step):
-    def __init__(self, upstream):
-        Step.__init__(self, 'MergeUpstreamStep:' + str(upstream))
-        self.upstream = upstream
+    def __init__(self, pull_request: PullRequest):
+        Step.__init__(self, 'MergeUpstreamStep:' + str(pull_request.number))
+        self.pull_request = pull_request
 
-    def run(self, context):
-        _merge_upstream_pr(context, self.upstream)
+    def run(self, context: RunContext):
+        self.pull_request.remove_label('do not merge yet')
+        self.pull_request.merge()
 
-
-def merge_upstream_pr(upstream, steps):
-    steps += [MergeUpstreamStep(upstream)]
-
-def _merge_upstream_pr(context: RunContext, upstream):
-    remove_upstream_pr_label(context, 'do not merge yet', str(upstream))
-    data = {
-        'merge_method': 'rebase',
-    }
-    return authenticated(context,
-                         'PUT',
-                         context.url_for_wpt_upstream_pulls() + '/' + str(upstream) + '/merge',
-                         json=data)
-
-
-def remove_upstream_pr_label(context: RunContext, label, pr_number):
-    authenticated(context,
-                  'DELETE',
-                  ('repos/%s/issues/%s/labels/%s' %
-                   (context.wpt_repo, pr_number, label)))
-
-
-def modify_upstream_pr_labels(context: RunContext, method, labels, pr_number):
-    authenticated(context,
-                  method,
-                  ('repos/%s/issues/%s/labels' %
-                   (context.wpt_repo, pr_number)),
-                  json=labels)
+def merge_upstream_pr(pull_request: PullRequest, steps):
+    steps += [MergeUpstreamStep(pull_request)]
 
 
 class OpenUpstreamPRStep(Step):
@@ -312,93 +241,51 @@ class OpenUpstreamPRStep(Step):
         self.body = body
 
     def provides(self):
-        self.new_pr_url = AsyncValue()
-        return {'pr_url': self.new_pr_url}
+        self.new_pr = AsyncValue()
+        return {'pr': self.new_pr}
 
     def run(self, context: RunContext):
-        pr_url = _open_upstream_pr(context,
-                                   self.title,
-                                   self.branch.value(),
-                                   self.body)
-        self.new_pr_url.resolve(pr_url)
+        pull_request = context.wpt.open_pull_request(
+            context.downstream_wpt,
+            self.branch.value(),
+            self.title,
+            self.body
+        )
+        pull_request.add_labels(['servo-export', 'do not merge yet'])
+        self.new_pr.resolve(pull_request)
 
 
 def open_upstream_pr(title, branch, body, steps):
     step = OpenUpstreamPRStep(title, branch, body)
     steps += [step]
-    return step.provides()['pr_url']
-
-def _open_upstream_pr(context: RunContext, title, branch, body):
-    data = {
-        'title': title,
-        'head': branch_head_for_upstream(context, branch),
-        'base': 'master',
-        'body': body,
-        'maintainer_can_modify': False,
-    }
-    r = authenticated(context,
-                      'POST',
-                      context.url_for_wpt_upstream_pulls(),
-                      json=data)
-    result = r.json()
-    new_pr_number = result["number"]
-    modify_upstream_pr_labels(context, 'POST', ['servo-export', 'do not merge yet'], new_pr_number)
-    return result["html_url"]
-
-
-def get_upstream_pr_number_from_pr(context: RunContext, pull_request):
-    branch = wpt_branch_name_from_servo_pr_number(pull_request['number'])
-    head = branch_head_for_upstream(context, branch)
-    response = authenticated(context,
-                          'GET',
-                          f"{context.url_for_wpt_upstream_pulls()}?head={head}&base=master&state=open")
-    if int(response.status_code / 100) != 2:
-        return None
-
-    result = response.json()
-    if not result or not type(result) is list:
-        return None
-    return str(result[0]["number"])
-
+    return step.provides()['pr']
 
 class DownstreamComment(AsyncValue):
-    def __init__(self, upstream_url, text):
-        self.upstream_url = upstream_url
+    def __init__(self, upstream_pr: Union[PullRequest, AsyncValue], text):
+        self.upstream_pr = upstream_pr
         self.text = text
 
     def value(self):
-        if isinstance(self.upstream_url, AsyncValue):
-            self.upstream_url = self.upstream_url.value()
-        return DOWNSTREAM_COMMENT % (self.text, self.upstream_url)
-
-
-class UpstreamComment(AsyncValue):
-    def __init__(self, text):
-        self.text = text
-
-    def value(self):
-        return self.text
+        if isinstance(self.upstream_pr, AsyncValue):
+            self.upstream_pr = self.upstream_pr.value()
+        return DOWNSTREAM_COMMENT % (self.text, str(self.upstream_pr))
 
 
 class CommentStep(Step):
-    def __init__(self, repository, pr_number, comment):
+    def __init__(self, pull_request: PullRequest, comment: Union[str, AsyncValue]):
         Step.__init__(self, 'CommentStep')
-        self.repository = repository
-        self.pr_number = pr_number
+        self.pull_request = pull_request
         self.comment = comment
 
     def run(self, context: RunContext):
-        if isinstance(self.comment, AsyncValue):
-            self.comment = self.comment.value()
-        self.name += f":{self.repository}:{self.pr_number}:{self.comment}"
-        return authenticated(context,
-                            'POST',
-                            GITHUB_COMMENTS_URL % (self.repository, self.pr_number),
-                            json={'body': self.comment})
+        self.name += f":{self.pull_request.repo}:{self.pull_request.number}:{self.comment}"
+        if (isinstance(self.comment, AsyncValue)):
+            self.pull_request.leave_comment(self.comment.value())
+        else:
+            self.pull_request.leave_comment(self.comment)
 
-
-def comment_on_pr(repository, pr_number, comment, steps):
-    step = CommentStep(repository, pr_number, comment)
+def comment_on_pr(pull_request, comment, steps):
+    step = CommentStep(pull_request, comment)
     steps += [step]
 
 
@@ -413,99 +300,96 @@ def patch_contains_upstreamable_changes(context: RunContext, pull_request):
 
 
 
-def process_new_pr_contents(context: RunContext, pull_request, pre_commit_callback, steps):
-    pr_number = str(pull_request['number'])
-    upstream_pr_number = get_upstream_pr_number_from_pr(context, pull_request)
-    is_upstreamable = patch_contains_upstreamable_changes(context, pull_request)
-
-    print("Processing new PR contents:")
+def process_new_pr_contents(context: RunContext, action_pr_data: dict,
+                            servo_pr: PullRequest, upstream_pr: Optional[PullRequest],
+                            pre_commit_callback, steps):
+    is_upstreamable = patch_contains_upstreamable_changes(context, action_pr_data)
     print(f"  → PR is upstreamable: '{is_upstreamable}'")
-    if upstream_pr_number:
-        print(f"  → Detected existing upstream PR #{upstream_pr_number}")
 
-    if upstream_pr_number:
+    if upstream_pr:
         if is_upstreamable:
             # In case this is adding new upstreamable changes to a PR that was closed
             # due to a lack of upstreamable changes, force it to be reopened.
             # Github refuses to reopen a PR that had a branch force pushed, so be sure
             # to do this first.
-            change_upstream_pr(upstream_pr_number, 'opened', pull_request['title'], steps)
+            change_upstream_pr(upstream_pr, 'opened', action_pr_data['title'], steps)
             # Push the relevant changes to the upstream branch.
-            create_or_update_branch_for_pr(pull_request, pre_commit_callback, steps)
+            create_or_update_branch_for_pr(action_pr_data, pre_commit_callback, steps)
             extra_comment = 'Transplanted upstreamable changes to existing PR.'
         else:
             # Close the upstream PR, since would contain no changes otherwise.
-            comment_on_pr(context.wpt_repo, upstream_pr_number,
-                          UpstreamComment(NO_UPSTREAMBLE_CHANGES_COMMENT),
-                          steps)
-            change_upstream_pr(upstream_pr_number, 'closed', pull_request['title'], steps)
-            remove_branch_for_pr(pull_request, steps)
+            comment_on_pr(upstream_pr, NO_UPSTREAMBLE_CHANGES_COMMENT, steps)
+            change_upstream_pr(upstream_pr, 'closed', action_pr_data['title'], steps)
+            remove_branch_for_pr(action_pr_data, steps)
             extra_comment = 'No upstreamable changes; closed existing PR.'
 
-        comment_on_pr(context.servo_repo, pr_number,
-                      DownstreamComment(
-                        f'{context.wpt_repo}#{upstream_pr_number}',
-                        extra_comment),
-                      steps)
+        comment_on_pr(servo_pr, DownstreamComment(upstream_pr, extra_comment), steps)
     elif is_upstreamable:
         # Push the relevant changes to a new upstream branch.
-        branch = create_or_update_branch_for_pr(pull_request, pre_commit_callback, steps)
+        branch = create_or_update_branch_for_pr(action_pr_data, pre_commit_callback, steps)
+        # Create a pull request against the upstream repository for the new branch.
         # TODO: extract the non-checklist/reviewable parts of the pull request body
         #       and add it to the upstream body.
-        body = "Reviewed in %s." % (GITHUB_PR_URL % (context.servo_repo, pr_number))
-        # Create a pull request against the upstream repository for the new branch.
-        upstream_url = open_upstream_pr(pull_request['title'], branch, body, steps)
+        upstream_pr = open_upstream_pr(action_pr_data['title'], branch, f"Reviewed in {servo_pr}", steps)
         # Leave a comment to the new pull request in the original pull request.
-        comment = DownstreamComment(
-            upstream_url,
-            'Opened new PR for upstreamable changes.'
-        )
-        comment_on_pr(context.servo_repo, pr_number, comment, steps)
+        comment = DownstreamComment(upstream_pr, 'Opened new PR for upstreamable changes.')
+        comment_on_pr(servo_pr, comment, steps)
 
 
-def change_upstream_pr_title(context: RunContext, pull_request, steps):
-    print("Processing PR title change")
-    upstream_pr_number = get_upstream_pr_number_from_pr(context, pull_request)
-    if upstream_pr_number:
-        change_upstream_pr(upstream_pr_number, 'open', pull_request['title'], steps)
-
-        comment = DownstreamComment(
-            f'{context.wpt_repo}#{upstream_pr_number}',
-            'PR title changed; changed existing PR.'
-        )
-        comment_on_pr(context.servo_repo, pull_request["number"], comment, steps)
+def change_upstream_pr_title(context: RunContext, action_pr_data: dict, servo_pr: PullRequest, upstream_pr: PullRequest, steps):
+    print("Changing upstream PR title")
+    if upstream_pr:
+        change_upstream_pr(upstream_pr, 'open', action_pr_data['title'], steps)
+        comment = DownstreamComment(upstream_pr, 'PR title changed; changed existing PR.')
+        comment_on_pr(servo_pr, comment, steps)
 
 
-def process_closed_pr(context: RunContext, pull_request, steps):
+def process_closed_pr(context: RunContext, action_pr_data: dict, servo_pr: PullRequest, upstream_pr: PullRequest, steps):
     print("Processing closed PR")
-    upstream_pr_number = get_upstream_pr_number_from_pr(context, pull_request)
-    if not upstream_pr_number:
+
+    if not upstream_pr:
         # If we don't recognize this PR, it never contained upstreamable changes.
         return
-    if pull_request['merged']:
+    if action_pr_data['merged']:
         # Since the upstreamable changes have now been merged locally, merge the
         # corresponding upstream PR.
-        merge_upstream_pr(upstream_pr_number, steps)
+        merge_upstream_pr(upstream_pr, steps)
     else:
         # If a PR with upstreamable changes is closed without being merged, we
         # don't want to merge the changes upstream either.
-        change_upstream_pr(upstream_pr_number, 'closed', pull_request['title'], steps)
-        remove_branch_for_pr(pull_request, steps)
+        change_upstream_pr(upstream_pr, 'closed', action_pr_data['title'], steps)
+        remove_branch_for_pr(action_pr_data, steps)
 
 
 def process_json_payload(context: RunContext, payload, pre_commit_callback):
-    pull_request = payload['pull_request']
-    if NO_SYNC_SIGNAL in pull_request.get('body', ''):
+    action_pr_data = payload['pull_request']
+    if NO_SYNC_SIGNAL in action_pr_data.get('body', ''):
         return []
+
+    # Only look for an existing remote PR if the action is appropriate.
+    print(f"Processing '{payload['action']}' action...")
+    if payload['action'] not in [
+        'opened', 'synchronize', 'reopened',
+        'edited', 'closed']:
+        return []
+
+    servo_pr = context.servo.get_pull_request(action_pr_data['number'])
+    downstream_wpt_branch = context.downstream_wpt.get_branch(
+        wpt_branch_name_from_servo_pr_number(servo_pr.number))
+
+    upstream_pr = context.wpt.get_open_pull_request_for_branch(downstream_wpt_branch)
+    if upstream_pr:
+        print(f"  → Detected existing upstream PR {upstream_pr}")
 
     steps = []
     if payload['action'] in ['opened', 'synchronize', 'reopened']:
-        process_new_pr_contents(context, pull_request,
+        process_new_pr_contents(context, action_pr_data,
+                                servo_pr, upstream_pr,
                                 pre_commit_callback, steps)
     elif payload['action'] == 'edited' and 'title' in payload['changes']:
-        change_upstream_pr_title(context, pull_request, steps)
+        change_upstream_pr_title(context, action_pr_data, servo_pr, upstream_pr, steps)
     elif payload['action'] == 'closed':
-        process_closed_pr(context, pull_request, steps)
+        process_closed_pr(context, action_pr_data, servo_pr, upstream_pr, steps)
     return steps
 
 

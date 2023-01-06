@@ -9,7 +9,7 @@ from functools import partial
 import json
 import requests
 import sync
-from sync import RunContext, branch_head_for_upstream, process_and_run_steps, _create_or_update_branch_for_pr, git
+from sync import RunContext, process_and_run_steps, _create_or_update_branch_for_pr, git
 from test_api_server import start_server
 import threading
 import time
@@ -155,6 +155,14 @@ with open(os.path.join(TESTS_DIR, 'tests.json')) as f:
 
 def make_api_config(test, payload):
     pr_database = {}
+
+    def branch_head_for_upstream(context: RunContext, branch):
+        downstream_wpt_org = context.downstream_wpt_repo.split('/')[0]
+        if downstream_wpt_org != context.wpt_repo.split('/')[0]:
+            return f"{downstream_wpt_org}:{branch}"
+        else:
+            return branch
+
     for (branch, pr_number) in test["existing_prs"].items():
         pr_database[(branch_head_for_upstream(CONTEXT, branch), 'master')] = pr_number
 
