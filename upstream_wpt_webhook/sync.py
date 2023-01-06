@@ -216,8 +216,12 @@ class RemoveBranchForPRStep(Step):
 
 
 class ChangePRStep(Step):
-    def __init__(self, pull_request: PullRequest, state: str, title: str):
-        Step.__init__(self, f'ChangePRStep:{pull_request}:{state}:{title}')
+    def __init__(self, pull_request: PullRequest, state: str, title: str = None):
+        name = f'ChangePRStep:{pull_request}:{state}'
+        if title:
+            name += f':{title}'
+
+        Step.__init__(self, name)
         self.pull_request = pull_request
         self.state = state
         self.title = title
@@ -305,7 +309,7 @@ def process_new_pr_contents(context: RunContext, action_pr_data: dict,
         else:
             # Close the upstream PR, since would contain no changes otherwise.
             CommentStep.add(steps, upstream_pr, NO_UPSTREAMBLE_CHANGES_COMMENT)
-            ChangePRStep.add(steps, upstream_pr, 'closed', action_pr_data['title'])
+            ChangePRStep.add(steps, upstream_pr, 'closed')
             RemoveBranchForPRStep.add(steps, action_pr_data)
             CommentStep.add(steps, servo_pr, CLOSING_EXISTING_UPSTREAM_PR)
 
@@ -347,7 +351,7 @@ def process_closed_pr(context: RunContext, action_pr_data: dict, servo_pr: PullR
     else:
         # If a PR with upstreamable changes is closed without being merged, we
         # don't want to merge the changes upstream either.
-        ChangePRStep.add(steps, upstream_pr, 'closed', action_pr_data['title'])
+        ChangePRStep.add(steps, upstream_pr, 'closed')
         RemoveBranchForPRStep.add(steps, action_pr_data)
 
 
