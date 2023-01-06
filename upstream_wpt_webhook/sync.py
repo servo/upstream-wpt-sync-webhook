@@ -18,6 +18,16 @@ OPENED_NEW_UPSTREAM_PR = 'Found upstreamable WPT changes. Opened new upstream PR
 UPDATED_TITLE_IN_EXISTING_UPSTREAM_PR = 'PR title changed. Updated existing upstream PR ({upstream_pr}).'
 NO_UPSTREAMBLE_CHANGES_COMMENT = "Downstream PR ({servo_pr}) no longer contains any upstreamable changes. Closing PR."
 
+COULD_NOT_APPLY_CHANGES_DOWNSTREAM_COMMENT = """These changes could not be applied onto the latest
+ upstream web-platform-tests. Servo may be out of sync."""
+COULD_NOT_APPLY_CHANGES_UPSTREAM_COMMENT = """The downstream PR ({servo_pr}) can no longer be applied.
+ Waiting for a new version of these changes downstream."""
+
+COULD_NOT_MERGE_CHANGES_DOWNSTREAM_COMMENT = """These changes could not be merged at the upstream
+ PR ({upstream_pr}). Please address any CI issues and try to merge manually."""
+COULD_NOT_MERGE_CHANGES_UPSTREAM_COMMENT = """The downstream PR has merged ({servo_pr}), but these
+ changes could not be merged properly. Please address any CI issues and try to merge manually."""
+
 def make_comment(context: RunContext, template: str):
     return template.format(
         upstream_pr=context.upstream_pr,
@@ -63,7 +73,9 @@ class Step:
     def provides(self) -> Optional[AsyncValue]:
         return None
 
-    def run(self):
+    def run(self) -> Optional[list[Step]]:
+        """Run this step. If a new list of steps is returned, stop execution
+           of the currently running list and run the new list."""
         pass
 
     @classmethod
@@ -97,8 +109,9 @@ def git(*args, **kwargs):
 
 
 class CreateOrUpdateBranchForPRStep(Step):
-    def __init__(self, pull_request, pre_commit_callback):
+    def __init__(self, action_pr_data, pull_request, pre_commit_callback):
         Step.__init__(self, 'CreateOrUpdateBranchForPRStep')
+        self.action_pr_data = action_pr_data
         self.pull_request = pull_request
         self.pre_commit_callback = pre_commit_callback
         self.branch = AsyncValue()
@@ -107,12 +120,22 @@ class CreateOrUpdateBranchForPRStep(Step):
         return self.branch
 
     def run(self, context: RunContext):
-        commits = _fetch_upstreamable_commits(context, self.pull_request)
-        branch_name = _create_or_update_branch_for_pr(context, self.pull_request, commits, self.pre_commit_callback)
-        branch = context.downstream_wpt.get_branch(branch_name)
+        try:
+            commits = _fetch_upstreamable_commits(context, self.action_pr_data)
+            branch_name = _create_or_update_branch_for_pr(context, self.action_pr_data, commits, self.pre_commit_callback)
+            branch = context.downstream_wpt.get_branch(branch_name)
 
-        self.branch.resolve(branch)
-        self.name += ':%d:%s' % (len(commits), branch)
+            self.branch.resolve(branch)
+            self.name += ':%d:%s' % (len(commits), branch)
+        except Exception as exception:
+            print("Could not apply changes to upstream WPT repository.")
+            traceback.print_exception(exception)
+
+            steps = []
+            CommentStep.add(steps, self.pull_request, COULD_NOT_APPLY_CHANGES_DOWNSTREAM_COMMENT)
+            if context.upstream_pr:
+                CommentStep.add(steps, context.upstream_pr, COULD_NOT_APPLY_CHANGES_UPSTREAM_COMMENT)
+            return steps
 
 
 def _fetch_upstreamable_commits(context: RunContext, pull_request):
@@ -239,7 +262,17 @@ class MergePRStep(Step):
     def run(self, context: RunContext):
         for label in self.labels_to_remove:
             self.pull_request.remove_label(label)
-        self.pull_request.merge()
+        try:
+            self.pull_request.merge()
+        except Exception as exception:
+            print(f"Could not merge PR ({self.pull_request}).")
+            traceback.print_exception(exception)
+
+            steps = []
+            CommentStep.add(steps, self.pull_request, COULD_NOT_MERGE_CHANGES_UPSTREAM_COMMENT)
+            CommentStep.add(steps, context.servo_pr, COULD_NOT_MERGE_CHANGES_DOWNSTREAM_COMMENT)
+            self.pull_request.add_labels(['stale-servo-export'])
+            return steps
 
 
 class OpenPRStep(Step):
@@ -304,7 +337,7 @@ def process_new_pr_contents(context: RunContext, action_pr_data: dict,
             # to do this first.
             ChangePRStep.add(steps, upstream_pr, 'opened', action_pr_data['title'])
             # Push the relevant changes to the upstream branch.
-            CreateOrUpdateBranchForPRStep.add(steps, action_pr_data, pre_commit_callback)
+            CreateOrUpdateBranchForPRStep.add(steps, action_pr_data, servo_pr, pre_commit_callback)
             CommentStep.add(steps, servo_pr, UPDATED_EXISTING_UPSTREAM_PR)
         else:
             # Close the upstream PR, since would contain no changes otherwise.
@@ -315,7 +348,7 @@ def process_new_pr_contents(context: RunContext, action_pr_data: dict,
 
     elif is_upstreamable:
         # Push the relevant changes to a new upstream branch.
-        branch = CreateOrUpdateBranchForPRStep.add(steps, action_pr_data, pre_commit_callback)
+        branch = CreateOrUpdateBranchForPRStep.add(steps, action_pr_data, servo_pr, pre_commit_callback)
         # Create a pull request against the upstream repository for the new branch.
         # TODO: extract the non-checklist/reviewable parts of the pull request body
         #       and add it to the upstream body.
@@ -390,17 +423,22 @@ def process_json_payload(context: RunContext, payload, pre_commit_callback):
     return steps
 
 
-def process_and_run_steps(context: RunContext, payload, step_callback=None, error_callback=None, pre_commit_callback=None):
+def process_and_run_steps(context: RunContext, payload, step_callback=None, pre_commit_callback=None):
     try:
+        def run_steps(step_set):
+            for step in step_set:
+                new_steps = step.run(context)
+                if step_callback:
+                    step_callback(step)
+                if new_steps:
+                    return new_steps
+            return None
+
         steps = process_json_payload(context, payload, pre_commit_callback)
-        for step in steps:
-            step.run(context)
-            if step_callback:
-                step_callback(step)
+        while steps:
+            steps = run_steps(steps)
         return True
     except Exception as exception:
         print(payload)
         traceback.print_exception(exception)
-        if error_callback:
-            error_callback()
         return False
