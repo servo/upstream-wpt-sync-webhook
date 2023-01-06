@@ -18,6 +18,10 @@ GITHUB_PULLS_URL = "repos/%s/pulls"
 UPSTREAMABLE_PATH = 'tests/wpt/web-platform-tests/'
 NO_SYNC_SIGNAL = '[no-wpt-sync]'
 
+NO_UPSTREAMBLE_CHANGES_COMMENT = "Downstream PR no longer contains any upstreamable changes. Closing PR."
+DOWNSTREAM_COMMENT = "%s\n\nCompleted upstream sync of web-platform-test changes at %s"
+
+
 def upstream_pulls(config):
     return GITHUB_PULLS_URL % config['wpt_repo']
 
@@ -334,38 +338,46 @@ def get_upstream_pr_number_from_pr(config, pull_request):
     return str(result[0]["number"])
 
 
-class CommentStep(Step):
-    def __init__(self, pr_number, upstream_url, extra):
-        Step.__init__(self, 'CommentStep')
-        self.pr_number = pr_number
+class DownstreamComment(AsyncValue):
+    def __init__(self, upstream_url, text):
         self.upstream_url = upstream_url
-        self.extra = extra
+        self.text = text
+
+    def value(self):
+        if isinstance(self.upstream_url, AsyncValue):
+            self.upstream_url = self.upstream_url.value()
+        return DOWNSTREAM_COMMENT % (self.text, self.upstream_url)
+
+
+class UpstreamComment(AsyncValue):
+    def __init__(self, text):
+        self.text = text
+
+    def value(self):
+        return self.text
+
+
+class CommentStep(Step):
+    def __init__(self, repository, pr_number, comment):
+        Step.__init__(self, 'CommentStep')
+        self.repository = repository
+        self.pr_number = pr_number
+        self.comment = comment
 
     def run(self, config):
-        upstream_url = self.upstream_url.value() if isinstance(self.upstream_url, AsyncValue) else self.upstream_url
-        self.name += ':' + _comment_on_pr(config, self.pr_number, self.extra, upstream_url)
+        if isinstance(self.comment, AsyncValue):
+            self.comment = self.comment.value()
+        self.name += f":{self.repository}:{self.pr_number}:{self.comment}"
+        return authenticated(config,
+                            'POST',
+                            GITHUB_COMMENTS_URL % (self.repository, self.pr_number),
+                            json={'body': self.comment})
 
 
-def comment_on_pr(pr_number, upstream_url, extra, steps):
-    step = CommentStep(pr_number, upstream_url, extra)
+def comment_on_pr(repository, pr_number, comment, steps):
+    step = CommentStep(repository, pr_number, comment)
     steps += [step]
 
-
-def _do_comment_on_pr(config, pr_number, body):
-    data = {
-        'body': body,
-    }
-    return authenticated(config,
-                         'POST',
-                         GITHUB_COMMENTS_URL % (config['servo_repo'], pr_number),
-                         json=data)
-
-
-def _comment_on_pr(config, pr_number, upstream_url, extra):
-    body = '%s\n\nCompleted upstream sync of web-platform-test changes at %s.' % (
-        upstream_url, extra)
-    _do_comment_on_pr(config, pr_number, body)
-    return body
 
 
 def patch_contains_upstreamable_changes(config, pull_request):
@@ -400,12 +412,18 @@ def process_new_pr_contents(config, pull_request, pre_commit_callback, steps):
             extra_comment = 'Transplanted upstreamable changes to existing PR.'
         else:
             # Close the upstream PR, since would contain no changes otherwise.
+            comment_on_pr(config['wpt_repo'], upstream_pr_number,
+                          UpstreamComment(NO_UPSTREAMBLE_CHANGES_COMMENT),
+                          steps)
             change_upstream_pr(upstream_pr_number, 'closed', pull_request['title'], steps)
             remove_branch_for_pr(pull_request, steps)
             extra_comment = 'No upstreamable changes; closed existing PR.'
-        comment_on_pr(pr_number,
-                      '%s#%s' % (config['wpt_repo'], upstream_pr_number),
-                      extra_comment, steps)
+
+        comment_on_pr(config['servo_repo'], pr_number,
+                      DownstreamComment(
+                        f'{config["wpt_repo"]}#{upstream_pr_number}',
+                        extra_comment),
+                      steps)
     elif is_upstreamable:
         # Push the relevant changes to a new upstream branch.
         branch = create_or_update_branch_for_pr(pull_request, pre_commit_callback, steps)
@@ -415,7 +433,11 @@ def process_new_pr_contents(config, pull_request, pre_commit_callback, steps):
         # Create a pull request against the upstream repository for the new branch.
         upstream_url = open_upstream_pr(pull_request['title'], branch, body, steps)
         # Leave a comment to the new pull request in the original pull request.
-        comment_on_pr(pr_number, upstream_url, 'Opened new PR for upstreamable changes.', steps)
+        comment = DownstreamComment(
+            upstream_url,
+            'Opened new PR for upstreamable changes.'
+        )
+        comment_on_pr(config['servo_repo'], pr_number, comment, steps)
 
 
 def change_upstream_pr_title(config, pull_request, steps):
@@ -424,10 +446,11 @@ def change_upstream_pr_title(config, pull_request, steps):
     if upstream_pr_number:
         change_upstream_pr(upstream_pr_number, 'open', pull_request['title'], steps)
 
-        extra_comment = 'PR title changed; changed existing PR.'
-        comment_on_pr(upstream_pr_number,
-                      '%s#%s' % (config['wpt_repo'], upstream_pr_number),
-                      extra_comment, steps)
+        comment = DownstreamComment(
+            f'{config["wpt_repo"]}#{upstream_pr_number}',
+            'PR title changed; changed existing PR.'
+        )
+        comment_on_pr(config['servo_repo'], pull_request["number"], comment, steps)
 
 
 def process_closed_pr(config, pull_request, steps):

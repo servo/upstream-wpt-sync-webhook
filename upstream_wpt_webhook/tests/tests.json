@@ -6,7 +6,7 @@
         "expected": [
             "CreateOrUpdateBranchForPRStep:1:servo_export_18746",
             "OpenUpstreamPRStep",
-            "CommentStep:Opened new PR"
+            "CommentStep:servo/servo:18746:Opened new PR"
         ]
     },
     {
@@ -17,7 +17,7 @@
         "expected": [
             "CreateOrUpdateBranchForPRStep:1:servo_export_18746",
             "OpenUpstreamPRStep",
-            "CommentStep:Opened new PR"
+            "CommentStep:servo/servo:18746:Opened new PR"
         ]
     },
     {
@@ -28,7 +28,7 @@
         "expected": [
             "CreateOrUpdateBranchForPRStep:1:servo_export_18746",
             "OpenUpstreamPRStep",
-            "CommentStep:Opened new PR"
+            "CommentStep:servo/servo:18746:Opened new PR"
         ]
     },
     {
@@ -39,7 +39,7 @@
         "expected": [
             "CreateOrUpdateBranchForPRStep:1:servo_export_18746",
             "OpenUpstreamPRStep",
-            "CommentStep:Opened new PR"
+            "CommentStep:servo/servo:18746:Opened new PR"
         ]
     },
     {
@@ -62,7 +62,7 @@
         "expected": [
             "ChangeUpstreamPRStep:1:opened",
             "CreateOrUpdateBranchForPRStep:1:servo_export_18746",
-            "CommentStep:Transplanted upstreamable"
+            "CommentStep:servo/servo:18746:Transplanted upstreamable"
         ]
     },
     {
@@ -71,9 +71,10 @@
         "diff": "non-wpt.diff",
         "existing_prs": {"servo_export_18746": 1},
         "expected": [
+            "CommentStep:wpt/wpt:1:Downstream PR no longer contains",
             "ChangeUpstreamPRStep:1:closed",
             "RemoveBranchForPRStep",
-            "CommentStep:No upstreamable changes"
+            "CommentStep:servo/servo:18746:No upstreamable changes"
         ]
     },
     {
@@ -99,7 +100,7 @@
         "expected": [
             "ChangeUpstreamPRStep:10:opened",
             "CreateOrUpdateBranchForPRStep:1:servo_export_19612",
-            "CommentStep:Transplanted upstreamable changes"
+            "CommentStep:servo/servo:19612:Transplanted upstreamable changes"
         ]
     },
     {
@@ -108,9 +109,10 @@
         "diff": "non-wpt.diff",
         "existing_prs": {"servo_export_19612": 11},
         "expected": [
+            "CommentStep:wpt/wpt:11:Downstream PR no longer contains",
             "ChangeUpstreamPRStep:11:closed",
             "RemoveBranchForPRStep",
-            "CommentStep:No upstreamable changes"
+            "CommentStep:servo/servo:19612:No upstreamable changes"
         ]
     },
     {
@@ -121,7 +123,7 @@
         "expected": [
             "CreateOrUpdateBranchForPRStep:1:servo_export_19612",
             "OpenUpstreamPRStep",
-            "CommentStep:Opened new PR"
+            "CommentStep:servo/servo:19612:Opened new PR"
         ]
     },
     {
@@ -132,7 +134,7 @@
         "expected": [
             "CreateOrUpdateBranchForPRStep:2:servo_export_19612",
             "OpenUpstreamPRStep",
-            "CommentStep:Opened new PR"
+            "CommentStep:servo/servo:19612:Opened new PR"
         ]
     },
     {

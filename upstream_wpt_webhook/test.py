@@ -1,4 +1,3 @@
-import itertools
 import locale
 import os
 import subprocess
