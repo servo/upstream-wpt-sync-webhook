@@ -1,16 +1,9 @@
 import json
-import locale
 import os
 import sys
-import tempfile
 
 from flask import Flask, request, jsonify, render_template, make_response, abort
 from sync import UPSTREAMABLE_PATH, git
-
-try:
-    xrange
-except NameError:
-    xrange = range
 
 app = Flask(__name__)
 exiting = False
