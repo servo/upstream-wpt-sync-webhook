@@ -209,8 +209,7 @@ for (i, test) in enumerate(filter(lambda x: not x.get('disabled', False), tests)
 
     expected = test['expected']
     equal = len(expected) == len(executed) and all([
-        v[0] == v[1] or (':' in v[0] and v[0].startswith(v[1]))
-        for v in zip(executed, expected)
+        v[0] == v[1] for v in zip(executed, expected)
     ])
 
     print('=' * 80)

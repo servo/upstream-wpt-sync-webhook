@@ -11,8 +11,18 @@ from github import GithubBranch, GithubRepository, PullRequest
 
 UPSTREAMABLE_PATH = 'tests/wpt/web-platform-tests/'
 NO_SYNC_SIGNAL = '[no-wpt-sync]'
-NO_UPSTREAMBLE_CHANGES_COMMENT = "Downstream PR no longer contains any upstreamable changes. Closing PR."
-DOWNSTREAM_COMMENT = "%s\n\nCompleted upstream sync of web-platform-test changes at %s"
+
+UPDATED_EXISTING_UPSTREAM_PR = 'Transplanted upstreamable changes to existing upstream PR ({upstream_pr}).'
+CLOSING_EXISTING_UPSTREAM_PR = 'No upstreamable changes; closed existing upstream PR ({upstream_pr}).'
+OPENED_NEW_UPSTREAM_PR = 'Found upstreamable WPT changes. Opened new upstream PR ({upstream_pr}).'
+UPDATED_TITLE_IN_EXISTING_UPSTREAM_PR = 'PR title changed. Updated existing upstream PR ({upstream_pr}).'
+NO_UPSTREAMBLE_CHANGES_COMMENT = "Downstream PR ({servo_pr}) no longer contains any upstreamable changes. Closing PR."
+
+def make_comment(context: RunContext, template: str):
+    return template.format(
+        upstream_pr=context.upstream_pr,
+        servo_pr=context.servo_pr,
+    )
 
 def wpt_branch_name_from_servo_pr_number(servo_pr_number):
     return f"servo_export_{servo_pr_number}"
@@ -41,6 +51,9 @@ class RunContext:
         self.servo = GithubRepository(self, self.servo_repo)
         self.wpt = GithubRepository(self, self.wpt_repo)
         self.downstream_wpt = GithubRepository(self, self.downstream_wpt_repo)
+
+        self.upstream_pr = "N/A"
+        self.servo_pr = "N/A"
 
 
 class Step:
@@ -242,6 +255,7 @@ class OpenPRStep(Step):
         pull_request = self.target_repo.open_pull_request(
             self.source_branch.value(), self.title, self.body
         )
+        context.upstream_pr = pull_request
 
         if self.labels:
             pull_request.add_labels(self.labels)
@@ -251,25 +265,14 @@ class OpenPRStep(Step):
         self.name += f":{self.source_branch.value()}→{self.new_pr.value()}"
 
 
-class DownstreamComment(AsyncValue):
-    def __init__(self, upstream_pr: Union[PullRequest, AsyncValue], text):
-        self.upstream_pr = upstream_pr
-        self.text = text
-
-    def value(self):
-        if isinstance(self.upstream_pr, AsyncValue):
-            self.upstream_pr = self.upstream_pr.value()
-        return DOWNSTREAM_COMMENT % (self.text, str(self.upstream_pr))
-
-
 class CommentStep(Step):
-    def __init__(self, pull_request: PullRequest, comment: Union[str, AsyncValue]):
+    def __init__(self, pull_request: PullRequest, comment_template: str):
         Step.__init__(self, 'CommentStep')
         self.pull_request = pull_request
-        self.comment = comment
+        self.comment_template = comment_template
 
     def run(self, context: RunContext):
-        comment = self.comment.value() if (isinstance(self.comment, AsyncValue)) else self.comment
+        comment = make_comment(context, self.comment_template)
         self.name += f":{self.pull_request}:{comment}"
         self.pull_request.leave_comment(comment)
 
@@ -298,15 +301,14 @@ def process_new_pr_contents(context: RunContext, action_pr_data: dict,
             ChangePRStep.add(steps, upstream_pr, 'opened', action_pr_data['title'])
             # Push the relevant changes to the upstream branch.
             CreateOrUpdateBranchForPRStep.add(steps, action_pr_data, pre_commit_callback)
-            extra_comment = 'Transplanted upstreamable changes to existing PR.'
+            CommentStep.add(steps, servo_pr, UPDATED_EXISTING_UPSTREAM_PR)
         else:
             # Close the upstream PR, since would contain no changes otherwise.
             CommentStep.add(steps, upstream_pr, NO_UPSTREAMBLE_CHANGES_COMMENT)
             ChangePRStep.add(steps, upstream_pr, 'closed', action_pr_data['title'])
             RemoveBranchForPRStep.add(steps, action_pr_data)
-            extra_comment = 'No upstreamable changes; closed existing PR.'
+            CommentStep.add(steps, servo_pr, CLOSING_EXISTING_UPSTREAM_PR)
 
-        CommentStep.add(steps, servo_pr, DownstreamComment(upstream_pr, extra_comment))
     elif is_upstreamable:
         # Push the relevant changes to a new upstream branch.
         branch = CreateOrUpdateBranchForPRStep.add(steps, action_pr_data, pre_commit_callback)
@@ -322,16 +324,14 @@ def process_new_pr_contents(context: RunContext, action_pr_data: dict,
         )
 
         # Leave a comment to the new pull request in the original pull request.
-        comment = DownstreamComment(upstream_pr, 'Opened new PR for upstreamable changes.')
-        CommentStep.add(steps, servo_pr, comment)
+        CommentStep.add(steps, servo_pr, OPENED_NEW_UPSTREAM_PR)
 
 
 def change_upstream_pr_title(context: RunContext, action_pr_data: dict, servo_pr: PullRequest, upstream_pr: PullRequest, steps):
     print("Changing upstream PR title")
     if upstream_pr:
         ChangePRStep.add(steps, upstream_pr, 'open', action_pr_data['title'])
-        comment = DownstreamComment(upstream_pr, 'PR title changed; changed existing PR.')
-        CommentStep.add(steps, servo_pr, comment)
+        CommentStep.add(steps, servo_pr, UPDATED_TITLE_IN_EXISTING_UPSTREAM_PR)
 
 
 def process_closed_pr(context: RunContext, action_pr_data: dict, servo_pr: PullRequest, upstream_pr: PullRequest, steps):
@@ -364,11 +364,14 @@ def process_json_payload(context: RunContext, payload, pre_commit_callback):
         return []
 
     servo_pr = context.servo.get_pull_request(action_pr_data['number'])
+    context.servo_pr = servo_pr
+
     downstream_wpt_branch = context.downstream_wpt.get_branch(
         wpt_branch_name_from_servo_pr_number(servo_pr.number))
 
     upstream_pr = context.wpt.get_open_pull_request_for_branch(downstream_wpt_branch)
     if upstream_pr:
+        context.upstream_pr = upstream_pr
         print(f"  → Detected existing upstream PR {upstream_pr}")
 
     steps = []

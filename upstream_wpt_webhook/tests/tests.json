@@ -6,7 +6,7 @@
         "expected": [
             "CreateOrUpdateBranchForPRStep:1:servo-wpt-sync/wpt/servo_export_18746",
             "OpenPRStep:servo-wpt-sync/wpt/servo_export_18746→wpt/wpt#1",
-            "CommentStep:servo/servo#18746:Opened new PR"
+            "CommentStep:servo/servo#18746:Found upstreamable WPT changes. Opened new upstream PR (wpt/wpt#1)."
         ]
     },
     {
@@ -17,7 +17,7 @@
         "expected": [
             "CreateOrUpdateBranchForPRStep:1:servo-wpt-sync/wpt/servo_export_18746",
             "OpenPRStep:servo-wpt-sync/wpt/servo_export_18746→wpt/wpt#1",
-            "CommentStep:servo/servo#18746:Opened new PR"
+            "CommentStep:servo/servo#18746:Found upstreamable WPT changes. Opened new upstream PR (wpt/wpt#1)."
         ]
     },
     {
@@ -28,7 +28,7 @@
         "expected": [
             "CreateOrUpdateBranchForPRStep:1:servo-wpt-sync/wpt/servo_export_18746",
             "OpenPRStep:servo-wpt-sync/wpt/servo_export_18746→wpt/wpt#1",
-            "CommentStep:servo/servo#18746:Opened new PR"
+            "CommentStep:servo/servo#18746:Found upstreamable WPT changes. Opened new upstream PR (wpt/wpt#1)."
         ]
     },
     {
@@ -39,7 +39,7 @@
         "expected": [
             "CreateOrUpdateBranchForPRStep:1:servo-wpt-sync/wpt/servo_export_18746",
             "OpenPRStep:servo-wpt-sync/wpt/servo_export_18746→wpt/wpt#1",
-            "CommentStep:servo/servo#18746:Opened new PR"
+            "CommentStep:servo/servo#18746:Found upstreamable WPT changes. Opened new upstream PR (wpt/wpt#1)."
         ]
     },
     {
@@ -60,9 +60,9 @@
         "payload": "new_pr.json",
         "existing_prs": {"servo_export_18746": 1},
         "expected": [
-            "ChangePRStep:wpt/wpt#1:opened",
+            "ChangePRStep:wpt/wpt#1:opened:This is a test",
             "CreateOrUpdateBranchForPRStep:1:servo-wpt-sync/wpt/servo_export_18746",
-            "CommentStep:servo/servo#18746:Transplanted upstreamable"
+            "CommentStep:servo/servo#18746:Transplanted upstreamable changes to existing upstream PR (wpt/wpt#1)."
         ]
     },
     {
@@ -71,10 +71,10 @@
         "diff": "non-wpt.diff",
         "existing_prs": {"servo_export_18746": 1},
         "expected": [
-            "CommentStep:wpt/wpt#1:Downstream PR no longer contains",
-            "ChangePRStep:wpt/wpt#1:closed",
+            "CommentStep:wpt/wpt#1:Downstream PR (servo/servo#18746) no longer contains any upstreamable changes. Closing PR.",
+            "ChangePRStep:wpt/wpt#1:closed:This is a test",
             "RemoveBranchForPRStep",
-            "CommentStep:servo/servo#18746:No upstreamable changes"
+            "CommentStep:servo/servo#18746:No upstreamable changes; closed existing upstream PR (wpt/wpt#1)."
         ]
     },
     {
@@ -88,7 +88,7 @@
         "payload": "close_pr.json",
         "existing_prs": {"servo_export_18746": 10},
         "expected": [
-            "ChangePRStep:wpt/wpt#10:closed",
+            "ChangePRStep:wpt/wpt#10:closed:This is a test",
             "RemoveBranchForPRStep"
         ]
     },
@@ -98,9 +98,9 @@
         "diff": "18746.diff",
         "existing_prs": {"servo_export_19612": 10},
         "expected": [
-            "ChangePRStep:wpt/wpt#10:opened",
+            "ChangePRStep:wpt/wpt#10:opened:deny warnings",
             "CreateOrUpdateBranchForPRStep:1:servo-wpt-sync/wpt/servo_export_19612",
-            "CommentStep:servo/servo#19612:Transplanted upstreamable changes"
+            "CommentStep:servo/servo#19612:Transplanted upstreamable changes to existing upstream PR (wpt/wpt#10)."
         ]
     },
     {
@@ -109,10 +109,10 @@
         "diff": "non-wpt.diff",
         "existing_prs": {"servo_export_19612": 11},
         "expected": [
-            "CommentStep:wpt/wpt#11:Downstream PR no longer contains",
-            "ChangePRStep:wpt/wpt#11:closed",
+            "CommentStep:wpt/wpt#11:Downstream PR (servo/servo#19612) no longer contains any upstreamable changes. Closing PR.",
+            "ChangePRStep:wpt/wpt#11:closed:deny warnings",
             "RemoveBranchForPRStep",
-            "CommentStep:servo/servo#19612:No upstreamable changes"
+            "CommentStep:servo/servo#19612:No upstreamable changes; closed existing upstream PR (wpt/wpt#11)."
         ]
     },
     {
@@ -123,7 +123,7 @@
         "expected": [
             "CreateOrUpdateBranchForPRStep:1:servo-wpt-sync/wpt/servo_export_19612",
             "OpenPRStep:servo-wpt-sync/wpt/servo_export_19612→wpt/wpt#1",
-            "CommentStep:servo/servo#19612:Opened new PR"
+            "CommentStep:servo/servo#19612:Found upstreamable WPT changes. Opened new upstream PR (wpt/wpt#1)."
         ]
     },
     {
@@ -134,7 +134,7 @@
         "expected": [
             "CreateOrUpdateBranchForPRStep:2:servo-wpt-sync/wpt/servo_export_19612",
             "OpenPRStep:servo-wpt-sync/wpt/servo_export_19612→wpt/wpt#1",
-            "CommentStep:servo/servo#19612:Opened new PR"
+            "CommentStep:servo/servo#19612:Found upstreamable WPT changes. Opened new upstream PR (wpt/wpt#1)."
         ]
     },
     {
