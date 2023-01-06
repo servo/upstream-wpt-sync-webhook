@@ -9,15 +9,14 @@ from functools import partial
 import json
 import requests
 import sync
-from sync import branch_head_for_upstream, process_and_run_steps, UPSTREAMABLE_PATH, _create_or_update_branch_for_pr, git
+from sync import RunContext, branch_head_for_upstream, process_and_run_steps, _create_or_update_branch_for_pr, git
 from test_api_server import start_server
 import threading
 import time
 import tempfile
 
-TESTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests")
-
 def setup_mock_repo(tmp_dir, repo_name):
+    print("=" * 80)
     print(f"Setting up {repo_name} Git repositry")
     repo_path = os.path.join(tmp_dir, repo_name)
     subprocess.run(["cp", "-R", "-p", os.path.join(TESTS_DIR, repo_name), tmp_dir])
@@ -31,6 +30,27 @@ def setup_mock_repo(tmp_dir, repo_name):
         env={'GIT_COMMITTER_NAME': 'Fake', 'GIT_COMMITTER_EMAIL': 'fake@fake.com'}
     )
     return repo_path
+
+
+TMP_DIR = tempfile.mkdtemp()
+TESTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests")
+CONFIG = {
+    'servo_repo': 'servo/servo',
+    'wpt_repo': 'wpt/wpt',
+    'downstream_wpt_repo': 'servo-wpt-sync/wpt',
+    'servo_path': setup_mock_repo(TMP_DIR, "servo-mock"),
+    'wpt_path': setup_mock_repo(TMP_DIR, "wpt-mock"),
+
+    'github_api_token': '',
+    'github_api_url': 'http://localhost:9000',
+    'github_username': 'servo-wpt-sync',
+    'github_email': 'servo-wpt-sync',
+    'github_name': 'servo-wpt-sync@servo.org',
+
+    'port': 5000,
+    'suppress_force_push': True,
+}
+CONTEXT = RunContext(CONFIG)
 
 
 def pr_commits(test, pull_request):
@@ -47,8 +67,8 @@ def pr_commits(test, pull_request):
     return [fake_commit_data(diff_file)]
 
 
-def setup_servo_repository_with_mock_pr_data(config, test, pull_request):
-    servo_path = config["servo_path"]
+def setup_servo_repository_with_mock_pr_data(test, pull_request):
+    servo_path = CONTEXT.servo_path
 
     # Clean up any old files.
     first_commit_hash = git(["rev-list", "HEAD"], cwd=servo_path).splitlines()[-1]
@@ -61,13 +81,13 @@ def setup_servo_repository_with_mock_pr_data(config, test, pull_request):
         git(["apply", os.path.join(TESTS_DIR, patch_file)], cwd=servo_path)
         git(["add", "."], cwd=servo_path)
         git(["commit", "-a", "--author", f"{author} <{email}>", "-m", message],
-            cwd=config['servo_path'],
+            cwd=servo_path,
             env={'GIT_COMMITTER_NAME': author.encode(locale.getpreferredencoding()),
                  'GIT_COMMITTER_EMAIL': email})
 
 
 def git_callback(test, git):
-    commits = git(["log", "--oneline", "-%d" % len(test['commits'])], cwd=config['wpt_path'])
+    commits = git(["log", "--oneline", "-%d" % len(test['commits'])], cwd=CONTEXT.wpt_path)
     commits = commits.splitlines()
     if any(map(lambda values: values[1]['message'] not in values[0],
                zip(commits, test['commits']))):
@@ -79,27 +99,6 @@ def git_callback(test, git):
         print(map(lambda s: s['message'], test['commits']))
         sys.exit(1)
 
-
-config = {
-    'servo_repo': 'servo/servo',
-    'wpt_repo': 'wpt/wpt',
-    'downstream_wpt_repo': 'servo-wpt-sync/wpt',
-    'username': 'servo-wpt-sync',
-    'port': 5000,
-    'token': '',
-    'api': 'http://localhost:9000',
-    'override_host': 'http://localhost:9000',
-    'suppress_force_push': True,
-}
-
-print('=' * 80)
-print(f'Setting up mock repositories and running Git tests'),
-print('=' * 80)
-
-tmp_dir = tempfile.mkdtemp()
-config['servo_path'] = setup_mock_repo(tmp_dir, "servo-mock")
-config['wpt_path'] = setup_mock_repo(tmp_dir, "wpt-mock")
-
 with open(os.path.join(TESTS_DIR, 'git_tests.json')) as f:
     git_tests = json.loads(f.read())
 for test in git_tests:
@@ -107,7 +106,7 @@ for test in git_tests:
         with open(commit['diff']) as f:
             commit['diff'] = f.read()
     pull_request = {'number': test['pr_number']}
-    _create_or_update_branch_for_pr(config, pull_request, test['commits'], None,
+    _create_or_update_branch_for_pr(CONTEXT, pull_request, test['commits'], None,
                                     partial(git_callback, test))
 
 print('=' * 80)
@@ -126,16 +125,17 @@ def wait_for_server(port):
             time.sleep(0.5)
 
 class APIServerThread(object):
-    def __init__(self, config, port):
+    def __init__(self, api_config, port):
         #print('Starting API server on port ' + str(port))
         self.port = port
-        thread = threading.Thread(target=self.run, args=(config,))
+        self.api_config = api_config
+        thread = threading.Thread(target=self.run)
         thread.daemon = True
         thread.start()
         wait_for_server(self.port)
 
-    def run(self, config):
-        start_server(self.port, config)
+    def run(self):
+        start_server(self.port, self.api_config)
 
     def shutdown(self):
         r = requests.post('http://localhost:%d/shutdown' % self.port)
@@ -153,13 +153,13 @@ class APIServerThread(object):
 with open(os.path.join(TESTS_DIR, 'tests.json')) as f:
     tests = json.loads(f.read())
 
-def make_api_config(config, test, payload):
+def make_api_config(test, payload):
     pr_database = {}
     for (branch, pr_number) in test["existing_prs"].items():
-        pr_database[(branch_head_for_upstream(config, branch), 'master')] = pr_number
+        pr_database[(branch_head_for_upstream(CONTEXT, branch), 'master')] = pr_number
 
     api_config = {
-        "servo_path": config["servo_path"],
+        "servo_path": CONTEXT.servo_path,
         "pr_database": pr_database
     }
     api_config.update(test.get('api_config', {}))
@@ -176,12 +176,11 @@ for (i, test) in enumerate(filter(lambda x: not x.get('disabled', False), tests)
 
     print(f'Mocking application of PR to servo.')
     pull_request = payload['pull_request']
-    setup_servo_repository_with_mock_pr_data(config, test, pull_request);
+    setup_servo_repository_with_mock_pr_data(test, pull_request);
 
     port = 9000 + i
-    config['api'] = 'http://localhost:' + str(port)
-    config['override_host'] = config['api']
-    server = APIServerThread(make_api_config(config, test, payload), port)
+    CONTEXT.github_api_url = 'http://localhost:' + str(port)
+    server = APIServerThread(make_api_config(test, payload), port)
 
     executed = []
     def callback(step):
@@ -189,11 +188,11 @@ for (i, test) in enumerate(filter(lambda x: not x.get('disabled', False), tests)
         executed += [step.name]
     def pre_commit_callback():
         commit = pr_commits(test, pull_request).pop(0)
-        last_commit = git(["log", "-1", "--format=%an %ae %s"], cwd=config['wpt_path']).rstrip()
+        last_commit = git(["log", "-1", "--format=%an %ae %s"], cwd=CONTEXT.wpt_path).rstrip()
         expected = "%s %s %s" % (commit[1], commit[2], commit[3])
         assert last_commit == expected, "%s != %s" % (last_commit, expected)
 
-    result = process_and_run_steps(config,
+    result = process_and_run_steps(CONTEXT,
                                    payload,
                                    step_callback=callback,
                                    pre_commit_callback=pre_commit_callback)
