@@ -54,7 +54,7 @@ def commit_with_single_file(upstreamable):
 
 def new_pull_request(new_pr):
     global pr_database
-    number = len(pr_database)
+    number = len(pr_database) + 1
     pr_database[(new_pr["head"], new_pr["base"])] = number
     return {
         "number": number,

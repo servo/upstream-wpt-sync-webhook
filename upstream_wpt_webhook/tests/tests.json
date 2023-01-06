@@ -4,9 +4,9 @@
         "payload": "new_pr.json",
         "existing_prs": {},
         "expected": [
-            "CreateOrUpdateBranchForPRStep:1:servo_export_18746",
-            "OpenUpstreamPRStep",
-            "CommentStep:servo/servo:18746:Opened new PR"
+            "CreateOrUpdateBranchForPRStep:1:servo-wpt-sync/wpt/servo_export_18746",
+            "OpenPRStep:servo-wpt-sync/wpt/servo_export_18746→wpt/wpt#1",
+            "CommentStep:servo/servo#18746:Opened new PR"
         ]
     },
     {
@@ -15,9 +15,9 @@
         "diff": "move-into-wpt.diff",
         "existing_prs": {},
         "expected": [
-            "CreateOrUpdateBranchForPRStep:1:servo_export_18746",
-            "OpenUpstreamPRStep",
-            "CommentStep:servo/servo:18746:Opened new PR"
+            "CreateOrUpdateBranchForPRStep:1:servo-wpt-sync/wpt/servo_export_18746",
+            "OpenPRStep:servo-wpt-sync/wpt/servo_export_18746→wpt/wpt#1",
+            "CommentStep:servo/servo#18746:Opened new PR"
         ]
     },
     {
@@ -26,9 +26,9 @@
         "diff": [["move-into-wpt.diff", "Fernando Jiménez Moreno", "foo@bar.com", "ééééé"]],
         "existing_prs": {},
         "expected": [
-            "CreateOrUpdateBranchForPRStep:1:servo_export_18746",
-            "OpenUpstreamPRStep",
-            "CommentStep:servo/servo:18746:Opened new PR"
+            "CreateOrUpdateBranchForPRStep:1:servo-wpt-sync/wpt/servo_export_18746",
+            "OpenPRStep:servo-wpt-sync/wpt/servo_export_18746→wpt/wpt#1",
+            "CommentStep:servo/servo#18746:Opened new PR"
         ]
     },
     {
@@ -37,9 +37,9 @@
         "diff": "move-out-of-wpt.diff",
         "existing_prs": {},
         "expected": [
-            "CreateOrUpdateBranchForPRStep:1:servo_export_18746",
-            "OpenUpstreamPRStep",
-            "CommentStep:servo/servo:18746:Opened new PR"
+            "CreateOrUpdateBranchForPRStep:1:servo-wpt-sync/wpt/servo_export_18746",
+            "OpenPRStep:servo-wpt-sync/wpt/servo_export_18746→wpt/wpt#1",
+            "CommentStep:servo/servo#18746:Opened new PR"
         ]
     },
     {
@@ -60,9 +60,9 @@
         "payload": "new_pr.json",
         "existing_prs": {"servo_export_18746": 1},
         "expected": [
-            "ChangeUpstreamPRStep:1:opened",
-            "CreateOrUpdateBranchForPRStep:1:servo_export_18746",
-            "CommentStep:servo/servo:18746:Transplanted upstreamable"
+            "ChangePRStep:wpt/wpt#1:opened",
+            "CreateOrUpdateBranchForPRStep:1:servo-wpt-sync/wpt/servo_export_18746",
+            "CommentStep:servo/servo#18746:Transplanted upstreamable"
         ]
     },
     {
@@ -71,10 +71,10 @@
         "diff": "non-wpt.diff",
         "existing_prs": {"servo_export_18746": 1},
         "expected": [
-            "CommentStep:wpt/wpt:1:Downstream PR no longer contains",
-            "ChangeUpstreamPRStep:1:closed",
+            "CommentStep:wpt/wpt#1:Downstream PR no longer contains",
+            "ChangePRStep:wpt/wpt#1:closed",
             "RemoveBranchForPRStep",
-            "CommentStep:servo/servo:18746:No upstreamable changes"
+            "CommentStep:servo/servo#18746:No upstreamable changes"
         ]
     },
     {
@@ -88,7 +88,7 @@
         "payload": "close_pr.json",
         "existing_prs": {"servo_export_18746": 10},
         "expected": [
-            "ChangeUpstreamPRStep:10:closed",
+            "ChangePRStep:wpt/wpt#10:closed",
             "RemoveBranchForPRStep"
         ]
     },
@@ -98,9 +98,9 @@
         "diff": "18746.diff",
         "existing_prs": {"servo_export_19612": 10},
         "expected": [
-            "ChangeUpstreamPRStep:10:opened",
-            "CreateOrUpdateBranchForPRStep:1:servo_export_19612",
-            "CommentStep:servo/servo:19612:Transplanted upstreamable changes"
+            "ChangePRStep:wpt/wpt#10:opened",
+            "CreateOrUpdateBranchForPRStep:1:servo-wpt-sync/wpt/servo_export_19612",
+            "CommentStep:servo/servo#19612:Transplanted upstreamable changes"
         ]
     },
     {
@@ -109,10 +109,10 @@
         "diff": "non-wpt.diff",
         "existing_prs": {"servo_export_19612": 11},
         "expected": [
-            "CommentStep:wpt/wpt:11:Downstream PR no longer contains",
-            "ChangeUpstreamPRStep:11:closed",
+            "CommentStep:wpt/wpt#11:Downstream PR no longer contains",
+            "ChangePRStep:wpt/wpt#11:closed",
             "RemoveBranchForPRStep",
-            "CommentStep:servo/servo:19612:No upstreamable changes"
+            "CommentStep:servo/servo#19612:No upstreamable changes"
         ]
     },
     {
@@ -121,9 +121,9 @@
         "diff": "18746.diff",
         "existing_prs": {},
         "expected": [
-            "CreateOrUpdateBranchForPRStep:1:servo_export_19612",
-            "OpenUpstreamPRStep",
-            "CommentStep:servo/servo:19612:Opened new PR"
+            "CreateOrUpdateBranchForPRStep:1:servo-wpt-sync/wpt/servo_export_19612",
+            "OpenPRStep:servo-wpt-sync/wpt/servo_export_19612→wpt/wpt#1",
+            "CommentStep:servo/servo#19612:Opened new PR"
         ]
     },
     {
@@ -132,9 +132,9 @@
         "diff": ["18746.diff", "non-wpt.diff", "wpt.diff"],
         "existing_prs": {},
         "expected": [
-            "CreateOrUpdateBranchForPRStep:2:servo_export_19612",
-            "OpenUpstreamPRStep",
-            "CommentStep:servo/servo:19612:Opened new PR"
+            "CreateOrUpdateBranchForPRStep:2:servo-wpt-sync/wpt/servo_export_19612",
+            "OpenPRStep:servo-wpt-sync/wpt/servo_export_19612→wpt/wpt#1",
+            "CommentStep:servo/servo#19612:Opened new PR"
         ]
     },
     {
@@ -150,7 +150,7 @@
         "diff": "18746.diff",
         "existing_prs": {"servo_export_19620": 100},
         "expected": [
-            "MergeUpstreamStep:100"
+            "MergePRStep:wpt/wpt#100"
         ]
     },
     {

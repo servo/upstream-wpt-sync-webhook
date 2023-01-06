@@ -7,7 +7,7 @@ import traceback
 
 from typing import Optional
 from typing import Union
-from github import GithubRepository, PullRequest
+from github import GithubBranch, GithubRepository, PullRequest
 
 UPSTREAMABLE_PATH = 'tests/wpt/web-platform-tests/'
 NO_SYNC_SIGNAL = '[no-wpt-sync]'
@@ -95,7 +95,9 @@ class CreateOrUpdateBranchForPRStep(Step):
 
     def run(self, context: RunContext):
         commits = _fetch_upstreamable_commits(context, self.pull_request)
-        branch = _create_or_update_branch_for_pr(context, self.pull_request, commits, self.pre_commit_callback)
+        branch_name = _create_or_update_branch_for_pr(context, self.pull_request, commits, self.pre_commit_callback)
+        branch = context.downstream_wpt.get_branch(branch_name)
+
         self.branch.resolve(branch)
         self.name += ':%d:%s' % (len(commits), branch)
 
@@ -200,9 +202,9 @@ class RemoveBranchForPRStep(Step):
             git(["push", "origin", "--delete", branch_name], cwd=context.wpt_path)
 
 
-class ChangeUpstreamPRStep(Step):
+class ChangePRStep(Step):
     def __init__(self, pull_request: PullRequest, state: str, title: str):
-        Step.__init__(self, 'ChangeUpstreamPRStep:%s:%s:%s' % (pull_request.number, state, title) )
+        Step.__init__(self, f'ChangePRStep:{pull_request}:{state}:{title}')
         self.pull_request = pull_request
         self.state = state
         self.title = title
@@ -211,36 +213,42 @@ class ChangeUpstreamPRStep(Step):
         self.pull_request.change(state=self.state, title=self.title)
 
 
-class MergeUpstreamStep(Step):
-    def __init__(self, pull_request: PullRequest):
-        Step.__init__(self, 'MergeUpstreamStep:' + str(pull_request.number))
+class MergePRStep(Step):
+    def __init__(self, pull_request: PullRequest, labels_to_remove: list[str] = []):
+        Step.__init__(self, f'MergePRStep:{pull_request}')
         self.pull_request = pull_request
+        self.labels_to_remove = labels_to_remove
 
     def run(self, context: RunContext):
-        self.pull_request.remove_label('do not merge yet')
+        for label in self.labels_to_remove:
+            self.pull_request.remove_label(label)
         self.pull_request.merge()
 
 
-class OpenUpstreamPRStep(Step):
-    def __init__(self, title, branch, body):
-        Step.__init__(self, 'OpenUpstreamPRStep')
+class OpenPRStep(Step):
+    def __init__(self, source_branch: GithubBranch, target_repo: GithubRepository, title: str, body: str, labels: list[str]):
+        Step.__init__(self, 'OpenPRStep')
         self.title = title
-        self.branch = branch
         self.body = body
+        self.source_branch = source_branch
+        self.target_repo = target_repo
         self.new_pr = AsyncValue()
+        self.labels = labels
 
     def provides(self):
         return self.new_pr
 
     def run(self, context: RunContext):
-        pull_request = context.wpt.open_pull_request(
-            context.downstream_wpt,
-            self.branch.value(),
-            self.title,
-            self.body
+        pull_request = self.target_repo.open_pull_request(
+            self.source_branch.value(), self.title, self.body
         )
-        pull_request.add_labels(['servo-export', 'do not merge yet'])
+
+        if self.labels:
+            pull_request.add_labels(self.labels)
+
         self.new_pr.resolve(pull_request)
+
+        self.name += f":{self.source_branch.value()}→{self.new_pr.value()}"
 
 
 class DownstreamComment(AsyncValue):
@@ -261,11 +269,9 @@ class CommentStep(Step):
         self.comment = comment
 
     def run(self, context: RunContext):
-        self.name += f":{self.pull_request.repo}:{self.pull_request.number}:{self.comment}"
-        if (isinstance(self.comment, AsyncValue)):
-            self.pull_request.leave_comment(self.comment.value())
-        else:
-            self.pull_request.leave_comment(self.comment)
+        comment = self.comment.value() if (isinstance(self.comment, AsyncValue)) else self.comment
+        self.name += f":{self.pull_request}:{comment}"
+        self.pull_request.leave_comment(comment)
 
 
 def patch_contains_upstreamable_changes(context: RunContext, pull_request):
@@ -289,14 +295,14 @@ def process_new_pr_contents(context: RunContext, action_pr_data: dict,
             # due to a lack of upstreamable changes, force it to be reopened.
             # Github refuses to reopen a PR that had a branch force pushed, so be sure
             # to do this first.
-            ChangeUpstreamPRStep.add(steps, upstream_pr, 'opened', action_pr_data['title'])
+            ChangePRStep.add(steps, upstream_pr, 'opened', action_pr_data['title'])
             # Push the relevant changes to the upstream branch.
             CreateOrUpdateBranchForPRStep.add(steps, action_pr_data, pre_commit_callback)
             extra_comment = 'Transplanted upstreamable changes to existing PR.'
         else:
             # Close the upstream PR, since would contain no changes otherwise.
             CommentStep.add(steps, upstream_pr, NO_UPSTREAMBLE_CHANGES_COMMENT)
-            ChangeUpstreamPRStep.add(steps, upstream_pr, 'closed', action_pr_data['title'])
+            ChangePRStep.add(steps, upstream_pr, 'closed', action_pr_data['title'])
             RemoveBranchForPRStep.add(steps, action_pr_data)
             extra_comment = 'No upstreamable changes; closed existing PR.'
 
@@ -307,7 +313,14 @@ def process_new_pr_contents(context: RunContext, action_pr_data: dict,
         # Create a pull request against the upstream repository for the new branch.
         # TODO: extract the non-checklist/reviewable parts of the pull request body
         #       and add it to the upstream body.
-        upstream_pr = OpenUpstreamPRStep.add(steps, action_pr_data['title'], branch, f"Reviewed in {servo_pr}")
+        upstream_pr = OpenPRStep.add(
+            steps, branch,
+            context.wpt,
+            action_pr_data['title'],
+            f"Reviewed in {servo_pr}",
+            ['servo-export', 'do not merge yet']
+        )
+
         # Leave a comment to the new pull request in the original pull request.
         comment = DownstreamComment(upstream_pr, 'Opened new PR for upstreamable changes.')
         CommentStep.add(steps, servo_pr, comment)
@@ -316,7 +329,7 @@ def process_new_pr_contents(context: RunContext, action_pr_data: dict,
 def change_upstream_pr_title(context: RunContext, action_pr_data: dict, servo_pr: PullRequest, upstream_pr: PullRequest, steps):
     print("Changing upstream PR title")
     if upstream_pr:
-        ChangeUpstreamPRStep.add(steps, upstream_pr, 'open', action_pr_data['title'])
+        ChangePRStep.add(steps, upstream_pr, 'open', action_pr_data['title'])
         comment = DownstreamComment(upstream_pr, 'PR title changed; changed existing PR.')
         CommentStep.add(steps, servo_pr, comment)
 
@@ -330,11 +343,11 @@ def process_closed_pr(context: RunContext, action_pr_data: dict, servo_pr: PullR
     if action_pr_data['merged']:
         # Since the upstreamable changes have now been merged locally, merge the
         # corresponding upstream PR.
-        MergeUpstreamStep.add(steps, upstream_pr)
+        MergePRStep.add(steps, upstream_pr, ['do not merge yet'])
     else:
         # If a PR with upstreamable changes is closed without being merged, we
         # don't want to merge the changes upstream either.
-        ChangeUpstreamPRStep.add(steps, upstream_pr, 'closed', action_pr_data['title'])
+        ChangePRStep.add(steps, upstream_pr, 'closed', action_pr_data['title'])
         RemoveBranchForPRStep.add(steps, action_pr_data)
 
 
