@@ -5,7 +5,7 @@ import time
 
 from collections import namedtuple
 from flask import Flask, request, jsonify, render_template, make_response, abort
-from sync import UPSTREAMABLE_PATH, git
+from sync import UPSTREAMABLE_PATH
 from typing import NamedTuple
 from wsgiref.simple_server import make_server
 

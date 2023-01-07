@@ -60,18 +60,25 @@ class AsyncValue:
         return self._value
 
 
-def git(*args, **kwargs):
-    command_line = ["git"] + list(*args)
-    cwd = kwargs['cwd']
-    print(f"  → Execution (cwd='{cwd}'): {' '.join(command_line)}")
+class LocalGitRepo:
+    def __init__(self, path: str, sync: WPTSync):
+        self.path = path
+        self.sync = sync
 
-    try:
-        out = subprocess.check_output(command_line, cwd=cwd, env=kwargs.get('env', {}))
-        return out.decode('utf-8')
-    except subprocess.CalledProcessError as e:
-        print(e.output)
-        raise e
+    def run(self, *args, env: dict = {}):
+        command_line = ["git"] + list(args)
+        print(f"  → Execution (cwd='{self.path}'): {' '.join(command_line)}")
 
+        env.setdefault('GIT_AUTHOR_EMAIL', self.sync.github_email)
+        env.setdefault('GIT_COMMITTER_EMAIL', self.sync.github_email)
+        env.setdefault('GIT_AUTHOR_NAME', self.sync.github_name)
+        env.setdefault('GIT_COMMITTER_NAME', self.sync.github_name)
+
+        try:
+            return subprocess.check_output(command_line, cwd=self.path, env=env).decode('utf-8')
+        except subprocess.CalledProcessError as e:
+            print(e.output)
+            raise e
 
 class CreateOrUpdateBranchForPRStep(Step):
     def __init__(self, pull_data: dict, pull_request: PullRequest):
@@ -85,7 +92,7 @@ class CreateOrUpdateBranchForPRStep(Step):
 
     def run(self, run: SyncRun):
         try:
-            commits = self._fetch_upstreamable_commits(run.sync)
+            commits = self._get_upstreamable_commits_from_local_servo_repo(run.sync)
             branch_name = self._create_or_update_branch_for_pr(run, commits)
             branch = run.sync.downstream_wpt.get_branch(branch_name)
 
@@ -101,11 +108,11 @@ class CreateOrUpdateBranchForPRStep(Step):
                 CommentStep.add(steps, run.upstream_pr, COULD_NOT_APPLY_CHANGES_UPSTREAM_COMMENT)
             return steps
 
-    def _fetch_upstreamable_commits(self, sync: WPTSync):
-        path = sync.servo_path
+    def _get_upstreamable_commits_from_local_servo_repo(self, sync: WPTSync):
+        local_servo_repo = sync.local_servo_repo
         number_of_commits = self.pull_data["commits"]
+        commit_shas = local_servo_repo.run("log", "--pretty=%H", f"-{number_of_commits}").splitlines()
 
-        commit_shas = git(["log", "--pretty=%H", f"-{number_of_commits}"], cwd=path).splitlines()
         filtered_commits = []
         for sha in commit_shas:
             # Specifying the path here does a few things. First, it exludes any
@@ -116,51 +123,45 @@ class CreateOrUpdateBranchForPRStep(Step):
             # TODO: If we could cleverly parse and manipulate the full commit diff
             # we could avoid cloning the servo repository altogether and only
             # have to fetch the commit diffs from GitHub.
-            diff = git(["show", "--binary", "--format=%b", sha, '--',  UPSTREAMABLE_PATH], cwd=path)
+            diff = local_servo_repo.run("show", "--binary", "--format=%b", sha, '--',  UPSTREAMABLE_PATH)
 
             # Retrieve the diff of any changes to files that are relevant
             if diff:
                 # Create an object that contains everything necessary to transplant this
                 # commit to another repository.
                 filtered_commits += [{
-                    'author': git(["show", "-s", "--pretty=%an <%ae>", sha], cwd=path),
-                    'message': git(["show", "-s", "--pretty=%B", sha], cwd=path),
+                    'author': local_servo_repo.run("show", "-s", "--pretty=%an <%ae>", sha),
+                    'message': local_servo_repo.run("show", "-s", "--pretty=%B", sha),
                     'diff': diff,
                 }]
         return filtered_commits
 
+    def _apply_filtered_servo_commit_to_wpt(self, run: SyncRun, commit: dict, pre_commit_callback: Optional[Callable]):
+        PATCH_FILE = 'tmp.patch'
+        PATCH_PATH = os.path.join(run.sync.wpt_path, PATCH_FILE)
+        STRIP_COUNT = UPSTREAMABLE_PATH.count('/') + 1
+
+        try:
+            with open(PATCH_PATH, 'w') as f:
+                f.write(commit['diff'])
+            run.sync.local_wpt_repo.run("apply", PATCH_FILE, "-p", str(STRIP_COUNT))
+        finally:
+            os.remove(PATCH_PATH) # Ensure the patch file is not added with the other changes.
+
+        run.sync.local_wpt_repo.run("add", "--all")
+        run.sync.local_wpt_repo.run("commit", "--message", commit['message'], "--author", commit['author'])
+
+        if pre_commit_callback:
+            pre_commit_callback()
+
     def _create_or_update_branch_for_pr(self, run: SyncRun, commits: list[dict], pre_commit_callback=None):
         branch_name = wpt_branch_name_from_servo_pr_number(self.pull_data['number'])
-        def upstream_inner(commits):
-            PATCH_FILE = 'tmp.patch'
-            STRIP_COUNT = UPSTREAMABLE_PATH.count('/') + 1
-
+        try:
             # Create a new branch with a unique name that is consistent between updates of the same PR
-            git(["checkout", "-b", branch_name], cwd=run.sync.wpt_path)
-
-            patch_path = os.path.join(run.sync.wpt_path, PATCH_FILE)
+            run.sync.local_wpt_repo.run("checkout", "-b", branch_name)
 
             for commit in commits:
-                # Export the current diff to a file
-                with open(patch_path, 'w') as f:
-                    f.write(commit['diff'])
-
-                # Apply the filtered changes
-                git(["apply", PATCH_FILE, "-p", str(STRIP_COUNT)], cwd=run.sync.wpt_path)
-
-                # Ensure the patch file is not added with the other changes.
-                os.remove(patch_path)
-
-                # Commit the changes
-                git(["add", "--all"], cwd=run.sync.wpt_path)
-                git(["commit", "--message", commit['message'],
-                    "--author", commit['author']],
-                    cwd=run.sync.wpt_path,
-                    env={'GIT_COMMITTER_NAME': run.sync.github_name,
-                        'GIT_COMMITTER_EMAIL': run.sync.github_email})
-
-                if pre_commit_callback:
-                    pre_commit_callback()
+                self._apply_filtered_servo_commit_to_wpt(run, commit, pre_commit_callback)
 
             # Push the branch upstream (forcing to overwrite any existing changes)
             if not run.sync.suppress_force_push:
@@ -169,18 +170,13 @@ class CreateOrUpdateBranchForPRStep(Step):
                     token=run.sync.github_api_token,
                     repo=run.sync.downstream_wpt_repo
                 )
-                git(["push", "-f", remote_url, branch_name], cwd=run.sync.wpt_path)
+                run.sync.local_wpt_repo.run("push", "-f", remote_url, branch_name)
 
             return branch_name
-
-        try:
-            return upstream_inner(commits)
-        except Exception as e:
-            raise e
         finally:
             try:
-                git(["checkout", "master"], cwd=run.sync.wpt_path)
-                git(["branch", "-D", branch_name], cwd=run.sync.wpt_path)
+                run.sync.local_wpt_repo.run("checkout", "master")
+                run.sync.local_wpt_repo.run("branch", "-D", branch_name)
             except:
                 pass
 
@@ -194,7 +190,7 @@ class RemoveBranchForPRStep(Step):
         print("  -> Removing branch used for upstream PR")
         branch_name = wpt_branch_name_from_servo_pr_number(self.pull_request['number'])
         if not run.sync.suppress_force_push:
-            git(["push", "origin", "--delete", branch_name], cwd=run.sync.wpt_path)
+            run.sync.local_wpt_repo.run("push", "origin", "--delete", branch_name)
 
 
 class ChangePRStep(Step):
@@ -274,14 +270,6 @@ class CommentStep(Step):
         self.pull_request.leave_comment(comment)
 
 
-def patch_contains_upstreamable_changes(sync: SyncRun, pull_request):
-    output = git([
-        "diff",
-         f"HEAD~{pull_request['commits']}",
-        '--', UPSTREAMABLE_PATH
-    ], cwd=sync.servo_path)
-    return len(output) > 0
-
 class SyncRun:
     def __init__(self, sync: WPTSync, servo_pr: PullRequest, upstream_pr: PullRequest, step_callback: Callable[[Step]]):
         self.__dict__.update(locals())
@@ -315,7 +303,9 @@ class SyncRun:
             steps = self.run_steps(steps)
 
     def steps_for_new_pull_request_contents(self, steps: list[Step], pull_data: dict):
-        is_upstreamable = patch_contains_upstreamable_changes(self.sync, pull_data)
+        is_upstreamable = len(self.sync.local_servo_repo.run(
+            "diff", f"HEAD~{pull_data['commits']}", '--', UPSTREAMABLE_PATH
+        )) > 0
         print(f"  → PR is upstreamable: '{is_upstreamable}'")
 
         if self.upstream_pr:
@@ -385,6 +375,8 @@ class WPTSync:
         self.servo = GithubRepository(self, self.servo_repo)
         self.wpt = GithubRepository(self, self.wpt_repo)
         self.downstream_wpt = GithubRepository(self, self.downstream_wpt_repo)
+        self.local_servo_repo = LocalGitRepo(self.servo_path, self)
+        self.local_wpt_repo = LocalGitRepo(self.wpt_path, self)
 
     def run(self, payload: dict, step_callback=None, pre_commit_callback=Optional[Callable]) -> bool:
         if not 'pull_request' in payload:
