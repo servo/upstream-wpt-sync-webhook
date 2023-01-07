@@ -2,18 +2,12 @@ import locale
 import os
 import subprocess
 import sys
-sys.path.append(os.path.abspath(os.path.dirname(__file__)))
-
-import copy
-from functools import partial
 import json
-import requests
-import sync
-from sync import RunContext, process_and_run_steps, _create_or_update_branch_for_pr, git
-from test_api_server import start_server
-import threading
-import time
 import tempfile
+
+from functools import partial
+from mock_github_api_server import MockGitHubAPIServer
+from sync import RunContext, process_and_run_steps, _create_or_update_branch_for_pr, git
 
 def setup_mock_repo(tmp_dir, repo_name):
     print("=" * 80)
@@ -113,65 +107,9 @@ print('=' * 80)
 print(f'Result: PASSED'),
 print('=' * 80)
 
-def wait_for_server(port):
-    # Wait for server to finish setting up before continuing
-    while True:
-        try:
-            r = requests.get('http://localhost:' + str(port) + '/ping')
-            assert(r.status_code == 200)
-            assert(r.text == 'pong')
-            break
-        except:
-            time.sleep(0.5)
-
-class APIServerThread(object):
-    def __init__(self, api_config, port):
-        #print('Starting API server on port ' + str(port))
-        self.port = port
-        self.api_config = api_config
-        thread = threading.Thread(target=self.run)
-        thread.daemon = True
-        thread.start()
-        wait_for_server(self.port)
-
-    def run(self):
-        start_server(self.port, self.api_config)
-
-    def shutdown(self):
-        r = requests.post('http://localhost:%d/shutdown' % self.port)
-        assert(r.status_code == 204)
-        # Wait for the server to stop responding to ping requests
-        while True:
-            try:
-                r = requests.get('http://localhost:' + str(port) + '/ping')
-                time.sleep(0.5)
-            except:
-                break
-        #print('Stopped API server on port ' + str(self.port))
-
 
 with open(os.path.join(TESTS_DIR, 'tests.json')) as f:
     tests = json.loads(f.read())
-
-def make_api_config(test, payload):
-    pr_database = {}
-
-    def branch_head_for_upstream(context: RunContext, branch):
-        downstream_wpt_org = context.downstream_wpt_repo.split('/')[0]
-        if downstream_wpt_org != context.wpt_repo.split('/')[0]:
-            return f"{downstream_wpt_org}:{branch}"
-        else:
-            return branch
-
-    for (branch, pr_number) in test["existing_prs"].items():
-        pr_database[(branch_head_for_upstream(CONTEXT, branch), 'master')] = pr_number
-
-    api_config = {
-        "servo_path": CONTEXT.servo_path,
-        "pr_database": pr_database
-    }
-    api_config.update(test.get('api_config', {}))
-    return api_config
 
 for (i, test) in enumerate(filter(lambda x: not x.get('disabled', False), tests)):
     with open(os.path.join('tests', test['payload'])) as f:
@@ -188,7 +126,12 @@ for (i, test) in enumerate(filter(lambda x: not x.get('disabled', False), tests)
 
     port = 9000 + i
     CONTEXT.github_api_url = 'http://localhost:' + str(port)
-    server = APIServerThread(make_api_config(test, payload), port)
+
+    prs = []
+    for (branch, pr_number) in test["existing_prs"].items():
+        prs.append((CONTEXT.downstream_wpt.get_branch(branch).get_pr_head_reference_for_repo(CONTEXT.wpt), pr_number))
+
+    server = MockGitHubAPIServer(port, prs)
 
     executed = []
     def callback(step):
