@@ -7,7 +7,7 @@ import tempfile
 
 from functools import partial
 from mock_github_api_server import MockGitHubAPIServer
-from sync import RunContext, process_and_run_steps, _create_or_update_branch_for_pr, git
+from sync import CreateOrUpdateBranchForPRStep, SyncRun, WPTSync, git
 
 def setup_mock_repo(tmp_dir, repo_name):
     print("=" * 80)
@@ -28,24 +28,19 @@ def setup_mock_repo(tmp_dir, repo_name):
 
 TMP_DIR = tempfile.mkdtemp()
 TESTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests")
-CONFIG = {
-    'servo_repo': 'servo/servo',
-    'wpt_repo': 'wpt/wpt',
-    'downstream_wpt_repo': 'servo-wpt-sync/wpt',
-    'servo_path': setup_mock_repo(TMP_DIR, "servo-mock"),
-    'wpt_path': setup_mock_repo(TMP_DIR, "wpt-mock"),
-
-    'github_api_token': '',
-    'github_api_url': 'http://localhost:9000',
-    'github_username': 'servo-wpt-sync',
-    'github_email': 'servo-wpt-sync',
-    'github_name': 'servo-wpt-sync@servo.org',
-
-    'port': 5000,
-    'suppress_force_push': True,
-}
-CONTEXT = RunContext(CONFIG)
-
+SYNC = WPTSync(
+        servo_repo='servo/servo',
+        wpt_repo='wpt/wpt',
+        downstream_wpt_repo='servo-wpt-sync/wpt',
+        servo_path=setup_mock_repo(TMP_DIR, "servo-mock"),
+        wpt_path=setup_mock_repo(TMP_DIR, "wpt-mock"),
+        github_api_token='',
+        github_api_url='http://localhost:9000',
+        github_username='servo-wpt-sync',
+        github_email='servo-wpt-sync',
+        github_name='servo-wpt-sync@servo.org',
+        suppress_force_push=True,
+)
 
 def pr_commits(test, pull_request):
     def fake_commit_data(filename):
@@ -62,7 +57,7 @@ def pr_commits(test, pull_request):
 
 
 def setup_servo_repository_with_mock_pr_data(test, pull_request):
-    servo_path = CONTEXT.servo_path
+    servo_path = SYNC.servo_path
 
     # Clean up any old files.
     first_commit_hash = git(["rev-list", "HEAD"], cwd=servo_path).splitlines()[-1]
@@ -80,8 +75,8 @@ def setup_servo_repository_with_mock_pr_data(test, pull_request):
                  'GIT_COMMITTER_EMAIL': email})
 
 
-def git_callback(test, git):
-    commits = git(["log", "--oneline", "-%d" % len(test['commits'])], cwd=CONTEXT.wpt_path)
+def git_callback(test):
+    commits = git(["log", "--oneline", "-%d" % len(test['commits'])], cwd=SYNC.wpt_path)
     commits = commits.splitlines()
     if any(map(lambda values: values[1]['message'] not in values[0],
                zip(commits, test['commits']))):
@@ -95,13 +90,18 @@ def git_callback(test, git):
 
 with open(os.path.join(TESTS_DIR, 'git_tests.json')) as f:
     git_tests = json.loads(f.read())
-for test in git_tests:
-    for commit in test['commits']:
-        with open(commit['diff']) as f:
-            commit['diff'] = f.read()
-    pull_request = {'number': test['pr_number']}
-    _create_or_update_branch_for_pr(CONTEXT, pull_request, test['commits'], None,
-                                    partial(git_callback, test))
+    for test in git_tests:
+        for commit in test['commits']:
+            with open(commit['diff']) as f:
+                commit['diff'] = f.read()
+
+        pull_request = SYNC.servo.get_pull_request(test['pr_number'])
+        step = CreateOrUpdateBranchForPRStep({'number': test['pr_number']}, pull_request)
+        step._create_or_update_branch_for_pr(
+            SyncRun(SYNC, pull_request, None, None),
+            test['commits'],
+            pre_commit_callback=partial(git_callback, test)
+        )
 
 print('=' * 80)
 print(f'Result: PASSED'),
@@ -125,11 +125,11 @@ for (i, test) in enumerate(filter(lambda x: not x.get('disabled', False), tests)
     setup_servo_repository_with_mock_pr_data(test, pull_request);
 
     port = 9000 + i
-    CONTEXT.github_api_url = 'http://localhost:' + str(port)
+    SYNC.github_api_url = 'http://localhost:' + str(port)
 
     prs = []
     for (branch, pr_number) in test["existing_prs"].items():
-        prs.append((CONTEXT.downstream_wpt.get_branch(branch).get_pr_head_reference_for_repo(CONTEXT.wpt), pr_number))
+        prs.append((SYNC.downstream_wpt.get_branch(branch).get_pr_head_reference_for_repo(SYNC.wpt), pr_number))
 
     server = MockGitHubAPIServer(port, prs)
 
@@ -139,16 +139,12 @@ for (i, test) in enumerate(filter(lambda x: not x.get('disabled', False), tests)
         executed += [step.name]
     def pre_commit_callback():
         commit = pr_commits(test, pull_request).pop(0)
-        last_commit = git(["log", "-1", "--format=%an %ae %s"], cwd=CONTEXT.wpt_path).rstrip()
+        last_commit = git(["log", "-1", "--format=%an %ae %s"], cwd=SYNC.wpt_path).rstrip()
         expected = "%s %s %s" % (commit[1], commit[2], commit[3])
         assert last_commit == expected, "%s != %s" % (last_commit, expected)
 
-    result = process_and_run_steps(CONTEXT,
-                                   payload,
-                                   step_callback=callback,
-                                   pre_commit_callback=pre_commit_callback)
+    SYNC.run(payload, step_callback=callback, pre_commit_callback=pre_commit_callback)
     server.shutdown()
-
 
     expected = test['expected']
     equal = len(expected) == len(executed) and all([

@@ -62,8 +62,7 @@
         "existing_prs": {},
         "expected": [
             "CreateOrUpdateBranchForPRStep",
-            "CommentStep:servo/servo#18746:These changes could not be applied onto the latest\n upstream web-platform-tests. Servo may be out of sync.",
-            "CommentStep:wpt/wpt#1:The downstream PR (servo/servo#18746) can no longer be applied.\n Waiting for a new version of these changes downstream."
+            "CommentStep:servo/servo#18746:These changes could not be applied onto the latest\n upstream web-platform-tests. Servo may be out of sync."
         ]
     },
     {

@@ -8,7 +8,7 @@ from typing import Optional
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from sync import RunContext
+    from sync import SyncRun
 
 """
 This modules contains some abstractions of GitHub repositories. It could one
@@ -42,7 +42,7 @@ class GithubRepository:
     This class allows interacting with a single GitHub repository.
     """
 
-    def __init__(self, context: RunContext, repo: str):
+    def __init__(self, context: SyncRun, repo: str):
         self.context = context
         self.repo = repo
         self.org = repo.split("/")[0]
