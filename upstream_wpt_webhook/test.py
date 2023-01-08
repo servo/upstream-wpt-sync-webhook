@@ -274,7 +274,7 @@ class TestFullSyncRun(unittest.TestCase):
             [
                 "CommentStep:wpt/wpt#1:👋 Downstream pull request (servo/servo#18746) no longer contains any upstreamable changes. Closing pull request without merging.",
                 "ChangePRStep:wpt/wpt#1:closed",
-                "RemoveBranchForPRStep",
+                "RemoveBranchForPRStep:servo-wpt-sync/wpt/servo_export_18746",
                 "CommentStep:servo/servo#18746:🤖 This change no longer contains upstreamable changes to WPT; closed existing upstream pull request (wpt/wpt#1).",
             ],
         )
@@ -306,7 +306,10 @@ class TestFullSyncRun(unittest.TestCase):
                 ["18746.diff"],
                 [MockPullRequest("servo-wpt-sync:servo_export_18746", 10)],
             ),
-            ["ChangePRStep:wpt/wpt#10:closed", "RemoveBranchForPRStep"],
+            [
+                "ChangePRStep:wpt/wpt#10:closed",
+                "RemoveBranchForPRStep:servo-wpt-sync/wpt/servo_export_18746"
+            ],
         )
 
     def test_synchronize_move_new_changes_to_preexisting_upstream_pr(self):
@@ -333,7 +336,7 @@ class TestFullSyncRun(unittest.TestCase):
             [
                 "CommentStep:wpt/wpt#11:👋 Downstream pull request (servo/servo#19612) no longer contains any upstreamable changes. Closing pull request without merging.",
                 "ChangePRStep:wpt/wpt#11:closed",
-                "RemoveBranchForPRStep",
+                "RemoveBranchForPRStep:servo-wpt-sync/wpt/servo_export_19612",
                 "CommentStep:servo/servo#19612:🤖 This change no longer contains upstreamable changes to WPT; closed existing upstream pull request (wpt/wpt#11).",
             ],
         )
@@ -389,7 +392,10 @@ class TestFullSyncRun(unittest.TestCase):
                 ["18746.diff"],
                 [MockPullRequest("servo-wpt-sync:servo_export_19620", 100)],
             ),
-            ["MergePRStep:wpt/wpt#100"],
+            [
+               "MergePRStep:wpt/wpt#100",
+               "RemoveBranchForPRStep:servo-wpt-sync/wpt/servo_export_19620"
+            ]
         )
 
     def test_pr_merged_no_upstream_pr(self):
