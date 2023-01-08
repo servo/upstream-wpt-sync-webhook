@@ -1,38 +1,42 @@
+# pylint: disable=missing-docstring
+
+"""This modules contains some abstractions of GitHub repositories. It could one
+day be entirely replaced with something like PyGithub."""
+
+# This allows using types that are defined later in the file.
 from __future__ import annotations
 
-import requests
-import urllib
 import logging
+import urllib
 
-from typing import Optional
-from typing import TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
+
+import requests
 
 if TYPE_CHECKING:
     from sync import SyncRun
 
-"""
-This modules contains some abstractions of GitHub repositories. It could one
-day be entirely replaced with something like PyGithub.
-"""
-
 USER_AGENT = "Servo web-platform-test sync service"
+TIMEOUT = 30  # 30 seconds
 
 
 def authenticated(context: SyncRun, method, url, json=None) -> requests.Response:
-    logging.info(f"  → Request: {method} {url}")
+    logging.info("  → Request: %s %s", method, url)
     if json:
-        logging.info(f"  → Request JSON: {json}")
+        logging.info("  → Request JSON: %s", json)
 
     headers = {
         "Authorization": f"Bearer {context.github_api_token}",
-        "User-Agent": USER_AGENT
+        "User-Agent": USER_AGENT,
     }
 
     url = urllib.parse.urljoin(context.github_api_url, url)
-    response = requests.request(method, url, headers=headers, json=json)
+    response = requests.request(
+        method, url, headers=headers, json=json, timeout=TIMEOUT
+    )
     if int(response.status_code / 100) != 2:
         raise ValueError(
-            "got unexpected %d response: %s" % (response.status_code, response.text)
+            f"Got unexpected {response.status_code} response: {response.text}"
         )
     return response
 
@@ -71,7 +75,7 @@ class GithubRepository:
             return None
 
         json = response.json()
-        if not json or not type(json) is list:
+        if not json or not isinstance(json, list):
             return None
         return self.get_pull_request(json[0]["number"])
 
@@ -83,8 +87,8 @@ class GithubRepository:
             "body": body,
             "maintainer_can_modify": False,
         }
-        r = authenticated(self.context, "POST", self.pulls_url, json=data)
-        return self.get_pull_request(r.json()["number"])
+        response = authenticated(self.context, "POST", self.pulls_url, json=data)
+        return self.get_pull_request(response.json()["number"])
 
 
 class GithubBranch:
@@ -124,9 +128,16 @@ class PullRequest:
         return authenticated(self.context, *args, **kwargs)
 
     def leave_comment(self, comment: str):
-        return self.api("POST", f"{self.base_issues_url}/comments", json={"body": comment})
+        return self.api(
+            "POST", f"{self.base_issues_url}/comments", json={"body": comment}
+        )
 
-    def change(self, state: str = None, title: str = None, body: str = None):
+    def change(
+        self,
+        state: Optional[str] = None,
+        title: Optional[str] = None,
+        body: Optional[str] = None,
+    ):
         data = {}
         if title:
             data["title"] = title
