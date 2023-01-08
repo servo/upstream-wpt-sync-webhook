@@ -12,7 +12,7 @@ import unittest
 from functools import partial
 import unittest
 from mock_github_api_server import MockGitHubAPIServer, MockPullRequest
-from sync import CreateOrUpdateBranchForPRStep, SyncRun, WPTSync
+from sync import ChangePRStep, CreateOrUpdateBranchForPRStep, SyncRun, WPTSync
 
 SYNC = None
 TMP_DIR = None
@@ -21,6 +21,28 @@ TESTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests")
 
 if '-v' in sys.argv or '--verbose' in sys.argv:
     logging.getLogger().level = logging.DEBUG
+
+"""
+Tests that sync.SyncRun.clean_up_body_text properly prepares the
+body text for an upstream pull request.
+"""
+class TestCleanUpBodyText(unittest.TestCase):
+    def test_prepare_body(self):
+        text = "Simple body text"
+        self.assertEqual(text, SyncRun.clean_up_body_text(text))
+        self.assertEqual("With reference: #<!-- nolink -->3",
+            SyncRun.clean_up_body_text("With reference: #3"))
+        self.assertEqual("Multi reference: #<!-- nolink -->3 and #<!-- nolink -->1020",
+            SyncRun.clean_up_body_text("Multi reference: #3 and #1020"))
+        self.assertEqual("Subject\n\nBody text #<!-- nolink -->1",
+            SyncRun.clean_up_body_text(
+                "Subject\n\nBody text #1\n---<!-- Thank you for contributing"))
+        self.assertEqual("Subject\n\nNo dashes",
+            SyncRun.clean_up_body_text(
+                "Subject\n\nNo dashes<!-- Thank you for contributing"))
+        self.assertEqual("Subject\n\nNo --- comment",
+            SyncRun.clean_up_body_text(
+                "Subject\n\nNo --- comment\n---Other stuff that"))
 
 """
 Tests that commits are properly applied to WPT by
@@ -174,7 +196,7 @@ class TestFullSyncRun(unittest.TestCase):
                           ["18746.diff"],
                           [MockPullRequest("servo-wpt-sync:servo_export_18746", 1)]),
             [
-                "ChangePRStep:wpt/wpt#1:opened:This is a test",
+                "ChangePRStep:wpt/wpt#1:opened:This is a test:<!-- Please...[95]",
                 "CreateOrUpdateBranchForPRStep:1:servo-wpt-sync/wpt/servo_export_18746",
                 "CommentStep:servo/servo#18746:Transplanted upstreamable changes to existing upstream PR (wpt/wpt#1)."
             ]
@@ -199,7 +221,7 @@ class TestFullSyncRun(unittest.TestCase):
                           ["does-not-apply-cleanly.diff"],
                           [MockPullRequest("servo-wpt-sync:servo_export_18746", 1)]),
             [
-                "ChangePRStep:wpt/wpt#1:opened:This is a test",
+                "ChangePRStep:wpt/wpt#1:opened:This is a test:<!-- Please...[95]",
                 "CreateOrUpdateBranchForPRStep",
                 "CommentStep:servo/servo#18746:These changes could not be applied onto the latest\n upstream web-platform-tests. Servo may be out of sync.",
                 "CommentStep:wpt/wpt#1:The downstream PR (servo/servo#18746) can no longer be applied.\n Waiting for a new version of these changes downstream."
@@ -221,7 +243,7 @@ class TestFullSyncRun(unittest.TestCase):
             "synchronize.json", ["18746.diff"],
             [MockPullRequest("servo-wpt-sync:servo_export_19612", 10)]),
             [
-                "ChangePRStep:wpt/wpt#10:opened:deny warnings",
+                "ChangePRStep:wpt/wpt#10:opened:deny warnings:<!-- Please...[142]",
                 "CreateOrUpdateBranchForPRStep:1:servo-wpt-sync/wpt/servo_export_19612",
                 "CommentStep:servo/servo#19612:Transplanted upstreamable changes to existing upstream PR (wpt/wpt#10)."
             ]
@@ -254,7 +276,7 @@ class TestFullSyncRun(unittest.TestCase):
             "synchronize.json", ["does-not-apply-cleanly.diff"],
             [MockPullRequest("servo-wpt-sync:servo_export_19612", 11)]),
             [
-                "ChangePRStep:wpt/wpt#11:opened:deny warnings",
+                "ChangePRStep:wpt/wpt#11:opened:deny warnings:<!-- Please...[142]",
                 "CreateOrUpdateBranchForPRStep",
                 "CommentStep:servo/servo#19612:These changes could not be applied onto the latest\n upstream web-platform-tests. Servo may be out of sync.",
                 "CommentStep:wpt/wpt#11:The downstream PR (servo/servo#19612) can no longer be applied.\n Waiting for a new version of these changes downstream."

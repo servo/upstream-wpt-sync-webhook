@@ -4,7 +4,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import subprocess
+import textwrap
 import traceback
 
 from typing import Callable, Optional
@@ -17,7 +19,7 @@ NO_SYNC_SIGNAL = '[no-wpt-sync]'
 UPDATED_EXISTING_UPSTREAM_PR = 'Transplanted upstreamable changes to existing upstream PR ({upstream_pr}).'
 CLOSING_EXISTING_UPSTREAM_PR = 'No upstreamable changes; closed existing upstream PR ({upstream_pr}).'
 OPENED_NEW_UPSTREAM_PR = 'Found upstreamable WPT changes. Opened new upstream PR ({upstream_pr}).'
-UPDATED_TITLE_IN_EXISTING_UPSTREAM_PR = 'PR title changed. Updated existing upstream PR ({upstream_pr}).'
+UPDATED_TITLE_IN_EXISTING_UPSTREAM_PR = 'PR title or body changed. Updated existing upstream PR ({upstream_pr}).'
 NO_UPSTREAMBLE_CHANGES_COMMENT = "Downstream PR ({servo_pr}) no longer contains any upstreamable changes. Closing PR."
 
 COULD_NOT_APPLY_CHANGES_DOWNSTREAM_COMMENT = """These changes could not be applied onto the latest
@@ -195,7 +197,7 @@ class RemoveBranchForPRStep(Step):
 
 
 class ChangePRStep(Step):
-    def __init__(self, pull_request: PullRequest, state: str, title: str = None):
+    def __init__(self, pull_request: PullRequest, state: str, title: str = None, body: str = None):
         name = f'ChangePRStep:{pull_request}:{state}'
         if title:
             name += f':{title}'
@@ -204,9 +206,15 @@ class ChangePRStep(Step):
         self.pull_request = pull_request
         self.state = state
         self.title = title
+        self.body = body
 
     def run(self, run: SyncRun):
-        self.pull_request.change(state=self.state, title=self.title)
+        body = self.body
+        if body:
+            body = run.prepare_body_text(body)
+            self.name += f':{textwrap.shorten(body, width=20, placeholder="...")}[{len(body)}]'
+
+        self.pull_request.change(state=self.state, title=self.title, body=body)
 
 
 class MergePRStep(Step):
@@ -246,7 +254,8 @@ class OpenPRStep(Step):
 
     def run(self, run: SyncRun):
         pull_request = self.target_repo.open_pull_request(
-            self.source_branch.value(), self.title, self.body
+            self.source_branch.value(), self.title,
+            run.prepare_body_text(self.body)
         )
         assert not run.upstream_pr
         run.upstream_pr = pull_request
@@ -295,8 +304,8 @@ class SyncRun:
         pull_data = payload['pull_request']
         if payload['action'] in ['opened', 'synchronize', 'reopened']:
             self.steps_for_new_pull_request_contents(steps, pull_data)
-        elif payload['action'] == 'edited' and 'title' in pull_data['changes']:
-            self.steps_for_new_pull_request_title(steps, pull_data)
+        elif payload['action'] == 'edited':
+            self.steps_for_edited_pull_request(steps, pull_data)
         elif payload['action'] == 'closed':
             self.steps_for_closed_pull_request(steps, pull_data)
 
@@ -315,7 +324,7 @@ class SyncRun:
                 # due to a lack of upstreamable changes, force it to be reopened.
                 # Github refuses to reopen a PR that had a branch force pushed, so be sure
                 # to do this first.
-                ChangePRStep.add(steps, self.upstream_pr, 'opened', pull_data['title'])
+                ChangePRStep.add(steps, self.upstream_pr, 'opened', pull_data['title'], pull_data['body'])
                 # Push the relevant changes to the upstream branch.
                 CreateOrUpdateBranchForPRStep.add(steps, pull_data, self.servo_pr)
                 CommentStep.add(steps, self.servo_pr, UPDATED_EXISTING_UPSTREAM_PR)
@@ -330,23 +339,21 @@ class SyncRun:
             # Push the relevant changes to a new upstream branch.
             branch = CreateOrUpdateBranchForPRStep.add(steps, pull_data, self.servo_pr)
             # Create a pull request against the upstream repository for the new branch.
-            # TODO: extract the non-checklist/reviewable parts of the pull request body
-            #       and add it to the upstream body.
             upstream_pr = OpenPRStep.add(
                 steps, branch,
                 self.sync.wpt,
                 pull_data['title'],
-                f"Reviewed in {self.servo_pr}",
+                pull_data['body'],
                 ['servo-export', 'do not merge yet']
             )
 
             # Leave a comment to the new pull request in the original pull request.
             CommentStep.add(steps, self.servo_pr, OPENED_NEW_UPSTREAM_PR)
 
-    def steps_for_new_pull_request_title(self, steps: list[Step], pull_data: dict):
+    def steps_for_edited_pull_request(self, steps: list[Step], pull_data: dict):
         logging.info("Changing upstream PR title")
         if self.upstream_pr:
-            ChangePRStep.add(steps, self.upstream_pr, 'open', pull_data['title'])
+            ChangePRStep.add(steps, self.upstream_pr, 'open', pull_data['title'], pull_data['body'])
             CommentStep.add(steps, self.servo_pr, UPDATED_TITLE_IN_EXISTING_UPSTREAM_PR)
 
     def steps_for_closed_pull_request(self, steps: list[Step], pull_data: dict):
@@ -363,6 +370,20 @@ class SyncRun:
             # don't want to merge the changes upstream either.
             ChangePRStep.add(steps, self.upstream_pr, 'closed')
             RemoveBranchForPRStep.add(steps, pull_data)
+
+    @staticmethod
+    def clean_up_body_text(body: str) -> str:
+        # Turn all bare issue references into unlinked ones, so that the PR
+        # doesn't inadvertantely close or link to issues in the upstream
+        # repository.
+        return re.sub(r"(^|\W)#([1-9]\d*)",
+                      "\\g<1>#<!-- nolink -->\\g<2>",
+                      body, flags=re.MULTILINE) \
+            .split("\n---")[0] \
+            .split("<!-- Thank you for")[0]
+
+    def prepare_body_text(self, body: str) -> str:
+        return SyncRun.clean_up_body_text(body) + f"\nReviewed in {self.servo_pr}"
 
 
 class WPTSync:
@@ -389,14 +410,16 @@ class WPTSync:
 
         # Only look for an existing remote PR if the action is appropriate.
         logging.info(f"Processing '{payload['action']}' action...")
-        if payload['action'] not in [
-            'opened', 'synchronize', 'reopened',
-            'edited', 'closed']:
+        action = payload['action']
+        if action not in ['opened', 'synchronize', 'reopened', 'edited', 'closed']:
+            return True
+
+        if action == 'edited' and 'title' not in payload['changes'] and \
+                'body' not in payload['changes']:
             return True
 
         try:
             servo_pr = self.servo.get_pull_request(pull_data['number'])
-
             downstream_wpt_branch = self.downstream_wpt.get_branch(
                 wpt_branch_name_from_servo_pr_number(servo_pr.number))
             upstream_pr = self.wpt.get_open_pull_request_for_branch(downstream_wpt_branch)
