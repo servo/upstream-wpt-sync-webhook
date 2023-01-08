@@ -3,23 +3,23 @@ import requests
 import threading
 import time
 
-from collections import namedtuple
+from dataclasses import dataclass, asdict
 from flask import Flask, request, jsonify, render_template, make_response, abort
 from sync import UPSTREAMABLE_PATH
 from typing import NamedTuple
 from wsgiref.simple_server import make_server
 
-class MockPullRequest(NamedTuple):
+@dataclass
+class MockPullRequest():
     head: str
     number: int
-    state: str
+    state: str = "open"
 
 class MockGitHubAPIServer(object):
-    def __init__(self, port: int, existing_prs: list[tuple]):
+    def __init__(self, port: int):
         self.port = port
         self.app = Flask(__name__)
         self.server = make_server('localhost', self.port, self.app)
-        self.pulls = [MockPullRequest(pr[0], pr[1], "open") for pr in existing_prs]
         self.start_server_thread()
 
     def start(self):
@@ -35,6 +35,14 @@ class MockGitHubAPIServer(object):
             except:
                 time.sleep(0.1)
 
+    def reset_server_state_with_prs(self, prs: list[MockPullRequest]):
+        response = requests.get(
+            f'http://localhost:{self.port}/reset-mock-github',
+            json=[asdict(pr) for pr in prs]
+        )
+        assert(response.status_code == 200)
+        assert(response.text == '👍')
+
     def shutdown(self):
         self.server.shutdown()
         self.thread.join()
@@ -47,11 +55,16 @@ class MockGitHubAPIServer(object):
         def ping(self):
             return ('pong', 200)
 
+        @self.app.route("/reset-mock-github")
+        def reset_server():
+            self.pulls = [MockPullRequest(pr['head'], pr['number'], pr['state']) for pr in request.json]
+            return ('👍', 200)
+
         @self.app.route("/repos/<org>/<repo>/pulls/<int:number>/merge", methods=['PUT'])
         def merge_pull_request(org, repo, number):
-            for (i, pr) in enumerate(self.pulls):
+            for pr in self.pulls:
                 if pr.number == number:
-                    self.pulls[i] = pr._replace(state='closed')
+                    pr.state = 'closed'
                     return ('', 204)
             return ('', 404)
 
@@ -75,15 +88,15 @@ class MockGitHubAPIServer(object):
         @self.app.route("/repos/<org>/<repo>/pulls/<int:number>", methods=['PATCH'])
         def update_pull_request(org, repo, number):
             print(self.pulls)
-            for (i, pr) in enumerate(self.pulls):
+            for pr in self.pulls:
                 if pr.number == number:
                     if 'state' in request.json:
-                        self.pulls[i] = pr._replace(state=request.json['state'])
+                        pr.state = request.json['state']
                     return ('', 204)
             return ('', 404)
 
-        @self.app.route("/repos/<org>/<repo>/pulls/<number>/labels", methods=['GET', 'POST'])
-        @self.app.route("/repos/<org>/<repo>/pulls/<number>/labels/<label>", methods=['DELETE'])
+        @self.app.route("/repos/<org>/<repo>/issues/<number>/labels", methods=['GET', 'POST'])
+        @self.app.route("/repos/<org>/<repo>/issues/<number>/labels/<label>", methods=['DELETE'])
         @self.app.route("/repos/<org>/<repo>/issues/<issue>/comments", methods=['GET', 'POST'])
         def other_requests(*args, **kwargs):
             return ('', 204)

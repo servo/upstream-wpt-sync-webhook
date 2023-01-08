@@ -136,7 +136,7 @@ class CreateOrUpdateBranchForPRStep(Step):
                 }]
         return filtered_commits
 
-    def _apply_filtered_servo_commit_to_wpt(self, run: SyncRun, commit: dict, pre_commit_callback: Optional[Callable]):
+    def _apply_filtered_servo_commit_to_wpt(self, run: SyncRun, commit: dict):
         PATCH_FILE = 'tmp.patch'
         PATCH_PATH = os.path.join(run.sync.wpt_path, PATCH_FILE)
         STRIP_COUNT = UPSTREAMABLE_PATH.count('/') + 1
@@ -151,8 +151,6 @@ class CreateOrUpdateBranchForPRStep(Step):
         run.sync.local_wpt_repo.run("add", "--all")
         run.sync.local_wpt_repo.run("commit", "--message", commit['message'], "--author", commit['author'])
 
-        if pre_commit_callback:
-            pre_commit_callback()
 
     def _create_or_update_branch_for_pr(self, run: SyncRun, commits: list[dict], pre_commit_callback=None):
         branch_name = wpt_branch_name_from_servo_pr_number(self.pull_data['number'])
@@ -161,7 +159,10 @@ class CreateOrUpdateBranchForPRStep(Step):
             run.sync.local_wpt_repo.run("checkout", "-b", branch_name)
 
             for commit in commits:
-                self._apply_filtered_servo_commit_to_wpt(run, commit, pre_commit_callback)
+                self._apply_filtered_servo_commit_to_wpt(run, commit)
+
+            if pre_commit_callback:
+                pre_commit_callback()
 
             # Push the branch upstream (forcing to overwrite any existing changes)
             if not run.sync.suppress_force_push:
