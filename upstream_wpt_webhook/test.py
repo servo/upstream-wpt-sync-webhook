@@ -140,7 +140,7 @@ class TestFullSyncRun(unittest.TestCase):
             [
                 "CreateOrUpdateBranchForPRStep:1:servo-wpt-sync/wpt/servo_export_18746",
                 "OpenPRStep:servo-wpt-sync/wpt/servo_export_18746→wpt/wpt#1",
-                "CommentStep:servo/servo#18746:Found upstreamable WPT changes. Opened new upstream PR (wpt/wpt#1)."
+                "CommentStep:servo/servo#18746:🤖 Opened new upstream WPT pull request (wpt/wpt#1) with upstreamable changes."
             ]
         )
 
@@ -150,7 +150,7 @@ class TestFullSyncRun(unittest.TestCase):
             [
                 "CreateOrUpdateBranchForPRStep:1:servo-wpt-sync/wpt/servo_export_18746",
                 "OpenPRStep:servo-wpt-sync/wpt/servo_export_18746→wpt/wpt#1",
-                "CommentStep:servo/servo#18746:Found upstreamable WPT changes. Opened new upstream PR (wpt/wpt#1)."
+                "CommentStep:servo/servo#18746:🤖 Opened new upstream WPT pull request (wpt/wpt#1) with upstreamable changes."
             ]
         )
 
@@ -163,7 +163,7 @@ class TestFullSyncRun(unittest.TestCase):
             [
                 "CreateOrUpdateBranchForPRStep:1:servo-wpt-sync/wpt/servo_export_18746",
                 "OpenPRStep:servo-wpt-sync/wpt/servo_export_18746→wpt/wpt#1",
-                "CommentStep:servo/servo#18746:Found upstreamable WPT changes. Opened new upstream PR (wpt/wpt#1)."
+                "CommentStep:servo/servo#18746:🤖 Opened new upstream WPT pull request (wpt/wpt#1) with upstreamable changes."
             ]
         )
 
@@ -173,7 +173,7 @@ class TestFullSyncRun(unittest.TestCase):
             [
                 "CreateOrUpdateBranchForPRStep:1:servo-wpt-sync/wpt/servo_export_18746",
                 "OpenPRStep:servo-wpt-sync/wpt/servo_export_18746→wpt/wpt#1",
-                "CommentStep:servo/servo#18746:Found upstreamable WPT changes. Opened new upstream PR (wpt/wpt#1)."
+                "CommentStep:servo/servo#18746:🤖 Opened new upstream WPT pull request (wpt/wpt#1) with upstreamable changes."
             ]
         )
 
@@ -186,7 +186,7 @@ class TestFullSyncRun(unittest.TestCase):
             self.run_test("opened.json", ["does-not-apply-cleanly.diff"]),
             [
                 "CreateOrUpdateBranchForPRStep",
-                "CommentStep:servo/servo#18746:These changes could not be applied onto the latest\n upstream web-platform-tests. Servo may be out of sync."
+                "CommentStep:servo/servo#18746:🛠 These changes could not be applied onto the latest upstream WPT. Servo's copy of the Web Platform Tests may be out of sync."
             ]
         )
 
@@ -198,7 +198,7 @@ class TestFullSyncRun(unittest.TestCase):
             [
                 "ChangePRStep:wpt/wpt#1:opened:This is a test:<!-- Please...[95]",
                 "CreateOrUpdateBranchForPRStep:1:servo-wpt-sync/wpt/servo_export_18746",
-                "CommentStep:servo/servo#18746:Transplanted upstreamable changes to existing upstream PR (wpt/wpt#1)."
+                "CommentStep:servo/servo#18746:📝 Transplanted new upstreamable changes to existing upstream WPT pull request (wpt/wpt#1)."
             ]
         )
 
@@ -208,10 +208,10 @@ class TestFullSyncRun(unittest.TestCase):
                           ["non-wpt.diff"],
                           [MockPullRequest("servo-wpt-sync:servo_export_18746", 1)]),
             [
-                "CommentStep:wpt/wpt#1:Downstream PR (servo/servo#18746) no longer contains any upstreamable changes. Closing PR.",
+                "CommentStep:wpt/wpt#1:👋 Downstream pull request (servo/servo#18746) no longer contains any upstreamable changes. Closing pull request without merging.",
                 "ChangePRStep:wpt/wpt#1:closed",
                 "RemoveBranchForPRStep",
-                "CommentStep:servo/servo#18746:No upstreamable changes; closed existing upstream PR (wpt/wpt#1)."
+                "CommentStep:servo/servo#18746:🤖 This change no longer contains upstreamable changes to WPT; closed existing upstream pull request (wpt/wpt#1)."
             ]
         )
 
@@ -223,8 +223,8 @@ class TestFullSyncRun(unittest.TestCase):
             [
                 "ChangePRStep:wpt/wpt#1:opened:This is a test:<!-- Please...[95]",
                 "CreateOrUpdateBranchForPRStep",
-                "CommentStep:servo/servo#18746:These changes could not be applied onto the latest\n upstream web-platform-tests. Servo may be out of sync.",
-                "CommentStep:wpt/wpt#1:The downstream PR (servo/servo#18746) can no longer be applied.\n Waiting for a new version of these changes downstream."
+                "CommentStep:servo/servo#18746:🛠 These changes could not be applied onto the latest upstream WPT. Servo's copy of the Web Platform Tests may be out of sync.",
+                "CommentStep:wpt/wpt#1:🛠 Changes from the source pull request (servo/servo#18746) can no longer be cleanly applied. Waiting for a new version of these changes downstream."
             ]
         )
 
@@ -245,7 +245,7 @@ class TestFullSyncRun(unittest.TestCase):
             [
                 "ChangePRStep:wpt/wpt#10:opened:deny warnings:<!-- Please...[142]",
                 "CreateOrUpdateBranchForPRStep:1:servo-wpt-sync/wpt/servo_export_19612",
-                "CommentStep:servo/servo#19612:Transplanted upstreamable changes to existing upstream PR (wpt/wpt#10)."
+                "CommentStep:servo/servo#19612:📝 Transplanted new upstreamable changes to existing upstream WPT pull request (wpt/wpt#10)."
             ]
         )
 
@@ -254,10 +254,11 @@ class TestFullSyncRun(unittest.TestCase):
             "synchronize.json", ["non-wpt.diff"],
             [MockPullRequest("servo-wpt-sync:servo_export_19612", 11)]),
             [
-                "CommentStep:wpt/wpt#11:Downstream PR (servo/servo#19612) no longer contains any upstreamable changes. Closing PR.",
+                "CommentStep:wpt/wpt#11:👋 Downstream pull request (servo/servo#19612) no longer contains any upstreamable changes. Closing pull request without merging.",
                 "ChangePRStep:wpt/wpt#11:closed",
                 "RemoveBranchForPRStep",
-                "CommentStep:servo/servo#19612:No upstreamable changes; closed existing upstream PR (wpt/wpt#11)."
+                "CommentStep:servo/servo#19612:🤖 This change no longer contains upstreamable changes to WPT; closed existing upstream pull request (wpt/wpt#11)."
+
             ]
         )
 
@@ -267,7 +268,7 @@ class TestFullSyncRun(unittest.TestCase):
             [
                 "CreateOrUpdateBranchForPRStep:1:servo-wpt-sync/wpt/servo_export_19612",
                 "OpenPRStep:servo-wpt-sync/wpt/servo_export_19612→wpt/wpt#1",
-                "CommentStep:servo/servo#19612:Found upstreamable WPT changes. Opened new upstream PR (wpt/wpt#1)."
+                "CommentStep:servo/servo#19612:🤖 Opened new upstream WPT pull request (wpt/wpt#1) with upstreamable changes."
             ]
         )
 
@@ -278,8 +279,8 @@ class TestFullSyncRun(unittest.TestCase):
             [
                 "ChangePRStep:wpt/wpt#11:opened:deny warnings:<!-- Please...[142]",
                 "CreateOrUpdateBranchForPRStep",
-                "CommentStep:servo/servo#19612:These changes could not be applied onto the latest\n upstream web-platform-tests. Servo may be out of sync.",
-                "CommentStep:wpt/wpt#11:The downstream PR (servo/servo#19612) can no longer be applied.\n Waiting for a new version of these changes downstream."
+                "CommentStep:servo/servo#19612:🛠 These changes could not be applied onto the latest upstream WPT. Servo's copy of the Web Platform Tests may be out of sync.",
+                "CommentStep:wpt/wpt#11:🛠 Changes from the source pull request (servo/servo#19612) can no longer be cleanly applied. Waiting for a new version of these changes downstream."
             ]
         )
 
@@ -292,7 +293,7 @@ class TestFullSyncRun(unittest.TestCase):
             [
                 "CreateOrUpdateBranchForPRStep:2:servo-wpt-sync/wpt/servo_export_19612",
                 "OpenPRStep:servo-wpt-sync/wpt/servo_export_19612→wpt/wpt#1",
-                "CommentStep:servo/servo#19612:Found upstreamable WPT changes. Opened new upstream PR (wpt/wpt#1)."
+                "CommentStep:servo/servo#19612:🤖 Opened new upstream WPT pull request (wpt/wpt#1) with upstreamable changes."
             ]
         )
 
