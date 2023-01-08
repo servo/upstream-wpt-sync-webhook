@@ -1,8 +1,10 @@
 import json
 import locale
+import logging
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from typing import Tuple
 import unittest
@@ -16,6 +18,9 @@ SYNC = None
 TMP_DIR = None
 PORT = 9000
 TESTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "tests")
+
+if '-v' in sys.argv or '--verbose' in sys.argv:
+    logging.getLogger().level = logging.DEBUG
 
 """
 Tests that commits are properly applied to WPT by
@@ -94,10 +99,10 @@ class TestFullSyncRun(unittest.TestCase):
         with open(os.path.join('tests', payload_file)) as f:
             payload = json.loads(f.read())
 
-        print(f'Mocking application of PR to servo.')
+        logging.info(f'Mocking application of PR to servo.')
         self.mock_servo_repository_state(diffs)
 
-        print(f'Resetting server state')
+        logging.info(f'Resetting server state')
         self.server.reset_server_state_with_prs(existing_prs)
 
         actual_steps = []
@@ -309,11 +314,11 @@ def setUpModule():
         local_repo.run("add", ".")
         local_repo.run("commit", "-a", "-m", "Initial commit")
 
-    print("=" * 80)
-    print(f"Setting up mock repositories")
+    logging.info("=" * 80)
+    logging.info(f"Setting up mock repositories")
     setup_mock_repo("servo-mock", SYNC.local_servo_repo)
     setup_mock_repo("wpt-mock", SYNC.local_wpt_repo)
-    print("=" * 80)
+    logging.info("=" * 80)
 
 def tearDownModule():
     global TMP_DIR

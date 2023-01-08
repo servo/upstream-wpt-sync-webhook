@@ -1,6 +1,8 @@
 # This allows using types that are defined later in the file.
 from __future__ import annotations
 
+import json
+import logging
 import os
 import subprocess
 import traceback
@@ -67,18 +69,15 @@ class LocalGitRepo:
 
     def run(self, *args, env: dict = {}):
         command_line = ["git"] + list(args)
-        print(f"  → Execution (cwd='{self.path}'): {' '.join(command_line)}")
+        logging.info(f"  → Execution (cwd='{self.path}'): {' '.join(command_line)}")
 
         env.setdefault('GIT_AUTHOR_EMAIL', self.sync.github_email)
         env.setdefault('GIT_COMMITTER_EMAIL', self.sync.github_email)
         env.setdefault('GIT_AUTHOR_NAME', self.sync.github_name)
         env.setdefault('GIT_COMMITTER_NAME', self.sync.github_name)
 
-        try:
-            return subprocess.check_output(command_line, cwd=self.path, env=env).decode('utf-8')
-        except subprocess.CalledProcessError as e:
-            print(e.output)
-            raise e
+        return subprocess.check_output(
+            command_line, cwd=self.path, env=env, stderr=subprocess.STDOUT).decode('utf-8')
 
 class CreateOrUpdateBranchForPRStep(Step):
     def __init__(self, pull_data: dict, pull_request: PullRequest):
@@ -99,8 +98,8 @@ class CreateOrUpdateBranchForPRStep(Step):
             self.branch.resolve(branch)
             self.name += ':%d:%s' % (len(commits), branch)
         except Exception as exception:
-            print("Could not apply changes to upstream WPT repository.")
-            traceback.print_exception(exception)
+            logging.info("Could not apply changes to upstream WPT repository.")
+            logging.info(exception, exc_info=True)
 
             steps = []
             CommentStep.add(steps, self.pull_request, COULD_NOT_APPLY_CHANGES_DOWNSTREAM_COMMENT)
@@ -146,7 +145,8 @@ class CreateOrUpdateBranchForPRStep(Step):
                 f.write(commit['diff'])
             run.sync.local_wpt_repo.run("apply", PATCH_FILE, "-p", str(STRIP_COUNT))
         finally:
-            os.remove(PATCH_PATH) # Ensure the patch file is not added with the other changes.
+            # Ensure the patch file is not added with the other changes.
+            os.remove(PATCH_PATH)
 
         run.sync.local_wpt_repo.run("add", "--all")
         run.sync.local_wpt_repo.run("commit", "--message", commit['message'], "--author", commit['author'])
@@ -188,7 +188,7 @@ class RemoveBranchForPRStep(Step):
         self.pull_request = pull_request
 
     def run(self, run: SyncRun):
-        print("  -> Removing branch used for upstream PR")
+        logging.info("  -> Removing branch used for upstream PR")
         branch_name = wpt_branch_name_from_servo_pr_number(self.pull_request['number'])
         if not run.sync.suppress_force_push:
             run.sync.local_wpt_repo.run("push", "origin", "--delete", branch_name)
@@ -221,8 +221,8 @@ class MergePRStep(Step):
         try:
             self.pull_request.merge()
         except Exception as exception:
-            print(f"Could not merge PR ({self.pull_request}).")
-            traceback.print_exception(exception)
+            logging.warning(f"Could not merge PR ({self.pull_request}).")
+            logging.warning(exception, exc_info=True)
 
             steps = []
             CommentStep.add(steps, self.pull_request, COULD_NOT_MERGE_CHANGES_UPSTREAM_COMMENT)
@@ -307,7 +307,7 @@ class SyncRun:
         is_upstreamable = len(self.sync.local_servo_repo.run(
             "diff", f"HEAD~{pull_data['commits']}", '--', UPSTREAMABLE_PATH
         )) > 0
-        print(f"  → PR is upstreamable: '{is_upstreamable}'")
+        logging.info(f"  → PR is upstreamable: '{is_upstreamable}'")
 
         if self.upstream_pr:
             if is_upstreamable:
@@ -344,13 +344,13 @@ class SyncRun:
             CommentStep.add(steps, self.servo_pr, OPENED_NEW_UPSTREAM_PR)
 
     def steps_for_new_pull_request_title(self, steps: list[Step], pull_data: dict):
-        print("Changing upstream PR title")
+        logging.info("Changing upstream PR title")
         if self.upstream_pr:
             ChangePRStep.add(steps, self.upstream_pr, 'open', pull_data['title'])
             CommentStep.add(steps, self.servo_pr, UPDATED_TITLE_IN_EXISTING_UPSTREAM_PR)
 
     def steps_for_closed_pull_request(self, steps: list[Step], pull_data: dict):
-        print("Processing closed PR")
+        logging.info("Processing closed PR")
         if not self.upstream_pr:
             # If we don't recognize this PR, it never contained upstreamable changes.
             return
@@ -388,7 +388,7 @@ class WPTSync:
             return True
 
         # Only look for an existing remote PR if the action is appropriate.
-        print(f"Processing '{payload['action']}' action...")
+        logging.info(f"Processing '{payload['action']}' action...")
         if payload['action'] not in [
             'opened', 'synchronize', 'reopened',
             'edited', 'closed']:
@@ -401,11 +401,13 @@ class WPTSync:
                 wpt_branch_name_from_servo_pr_number(servo_pr.number))
             upstream_pr = self.wpt.get_open_pull_request_for_branch(downstream_wpt_branch)
             if upstream_pr:
-                print(f"  → Detected existing upstream PR {upstream_pr}")
+                logging.info(f"  → Detected existing upstream PR {upstream_pr}")
 
             SyncRun(self, servo_pr, upstream_pr, step_callback).run(payload)
             return True
         except Exception as exception:
-            print(payload)
-            traceback.print_exception(exception)
+            if isinstance(exception, subprocess.CalledProcessError):
+                logging.error(exception.output)
+            logging.error(json.dumps(payload))
+            logging.error(exception, exc_info=True)
             return False

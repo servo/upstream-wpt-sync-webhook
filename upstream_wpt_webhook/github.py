@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import requests
 import urllib
-import typing
+import logging
 
 from typing import Optional
 from typing import TYPE_CHECKING
@@ -18,10 +18,10 @@ day be entirely replaced with something like PyGithub.
 USER_AGENT = "Servo web-platform-test sync service"
 
 
-def authenticated(context: RunContext, method, url, json=None) -> requests.Response:
-    print(f"  → Request: {method} {url}")
+def authenticated(context: SyncRun, method, url, json=None) -> requests.Response:
+    logging.info(f"  → Request: {method} {url}")
     if json:
-        print(f"  → Request JSON: {json}")
+        logging.info(f"  → Request JSON: {json}")
 
     headers = {
         "Authorization": f"Bearer {context.github_api_token}",

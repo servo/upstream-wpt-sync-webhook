@@ -1,13 +1,15 @@
+import flask
 import json
+import logging
 import requests
 import threading
 import time
 
 from dataclasses import dataclass, asdict
-from flask import Flask, request, jsonify, render_template, make_response, abort
+from flask import Flask, request
 from sync import UPSTREAMABLE_PATH
 from typing import NamedTuple
-from wsgiref.simple_server import make_server
+from wsgiref.simple_server import WSGIRequestHandler, make_server
 
 @dataclass
 class MockPullRequest():
@@ -18,9 +20,23 @@ class MockPullRequest():
 class MockGitHubAPIServer(object):
     def __init__(self, port: int):
         self.port = port
-        self.app = Flask(__name__)
-        self.server = make_server('localhost', self.port, self.app)
+        self.disable_logging()
+        self.app = flask.Flask(__name__)
+
+        class NoLoggingWSGIRequestHandler(WSGIRequestHandler):
+            def log_message(self, format, *args):
+                pass
+        handler = NoLoggingWSGIRequestHandler
+        if logging.getLogger().level == logging.DEBUG:
+            handler = WSGIRequestHandler
+        self.server = make_server('localhost', self.port, self.app, handler_class=handler)
         self.start_server_thread()
+
+    def disable_logging(self):
+        import flask.cli
+        flask.cli.show_server_banner = lambda *args: None
+        logging.getLogger("werkzeug").disabled = True
+        logging.getLogger('werkzeug').setLevel(logging.CRITICAL)
 
     def start(self):
         self.thread.start()
@@ -57,7 +73,7 @@ class MockGitHubAPIServer(object):
 
         @self.app.route("/reset-mock-github")
         def reset_server():
-            self.pulls = [MockPullRequest(pr['head'], pr['number'], pr['state']) for pr in request.json]
+            self.pulls = [MockPullRequest(pr['head'], pr['number'], pr['state']) for pr in flask.request.json]
             return ('👍', 200)
 
         @self.app.route("/repos/<org>/<repo>/pulls/<int:number>/merge", methods=['PUT'])
@@ -71,7 +87,7 @@ class MockGitHubAPIServer(object):
         @self.app.route("/repos/<org>/<repo>/pulls", methods=['GET'])
         def get_pulls(*args, **kwargs):
             for pr in self.pulls:
-                if pr.head == request.args["head"]:
+                if pr.head == flask.request.args["head"]:
                     return json.dumps([{"number": pr.number}])
             return json.dumps([])
 
@@ -87,11 +103,10 @@ class MockGitHubAPIServer(object):
 
         @self.app.route("/repos/<org>/<repo>/pulls/<int:number>", methods=['PATCH'])
         def update_pull_request(org, repo, number):
-            print(self.pulls)
             for pr in self.pulls:
                 if pr.number == number:
-                    if 'state' in request.json:
-                        pr.state = request.json['state']
+                    if 'state' in flask.request.json:
+                        pr.state = flask.request.json['state']
                     return ('', 204)
             return ('', 404)
 
