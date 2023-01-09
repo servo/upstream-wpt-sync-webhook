@@ -64,6 +64,13 @@ class TestCleanUpBodyText(unittest.TestCase):
                 "Subject\n\nNo --- comment\n---Other stuff that"
             ),
         )
+        self.assertEqual(
+            "Subject\n\n#<!-- nolink -->3 servo#<!-- nolink -->3 servo/servo#3",
+            SyncRun.clean_up_body_text(
+                "Subject\n\n#3 servo#3 servo/servo#3",
+            ),
+            "Only relative and bare issue reference links should be escaped."
+        )
 
 
 class TestApplyCommitsToWPT(unittest.TestCase):

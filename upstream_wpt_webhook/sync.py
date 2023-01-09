@@ -451,13 +451,13 @@ class SyncRun:
 
     @staticmethod
     def clean_up_body_text(body: str) -> str:
-        # Turn all bare issue references into unlinked ones, so that the PR
-        # doesn't inadvertantely close or link to issues in the upstream
+        # Turn all bare or relative issue references into unlinked ones, so that
+        # the PR doesn't inadvertantly close or link to issues in the upstream
         # repository.
         return (
             re.sub(
-                r"(^|\W)#([1-9]\d*)",
-                "\\g<1>#<!-- nolink -->\\g<2>",
+                r"(^|\s)(\w*)#([1-9]\d*)",
+                r"\g<1>\g<2>#<!-- nolink -->\g<3>",
                 body,
                 flags=re.MULTILINE,
             )
