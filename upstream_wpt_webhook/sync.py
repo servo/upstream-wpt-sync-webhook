@@ -69,15 +69,8 @@ class Step:
     def provides(self) -> Optional[AsyncValue]:
         return None
 
-    def run(self, _run: SyncRun) -> Optional[list[Step]]:
-        """Run this step. If a new list of steps is returned, stop execution
-        of the currently running list and run the new list."""
-        return None
-
-    @classmethod
-    def add(cls, steps: list[Step], *args) -> Optional[AsyncValue]:
-        steps.append(cls(*args))
-        return steps[-1].provides()
+    def run(self, _run: SyncRun):
+        return
 
 
 class AsyncValue:
@@ -132,15 +125,14 @@ class CreateOrUpdateBranchForPRStep(Step):
             logging.info("Could not apply changes to upstream WPT repository.")
             logging.info(exception, exc_info=True)
 
-            steps: list[Step] = []
-            CommentStep.add(
-                steps, self.pull_request, COULD_NOT_APPLY_CHANGES_DOWNSTREAM_COMMENT
-            )
+            run.steps = []
+            run.add_step(CommentStep(
+                self.pull_request, COULD_NOT_APPLY_CHANGES_DOWNSTREAM_COMMENT
+            ))
             if run.upstream_pr:
-                CommentStep.add(
-                    steps, run.upstream_pr, COULD_NOT_APPLY_CHANGES_UPSTREAM_COMMENT
-                )
-            return steps
+                run.add_step(CommentStep(
+                    run.upstream_pr, COULD_NOT_APPLY_CHANGES_UPSTREAM_COMMENT
+                ))
 
     def _get_upstreamable_commits_from_local_servo_repo(self, sync: WPTSync):
         local_servo_repo = sync.local_servo_repo
@@ -151,7 +143,7 @@ class CreateOrUpdateBranchForPRStep(Step):
 
         filtered_commits = []
         for sha in commit_shas:
-            # Specifying the path here does a few things. First, it exludes any
+            # Specifying the path here does a few things. First, it excludes any
             # changes that do not touch WPT files at all. Secondly, when a file is
             # moved in or out of the WPT directory the filename which is outside the
             # directory becomes /dev/null and the change becomes an addition or
@@ -288,15 +280,14 @@ class MergePRStep(Step):
             logging.warning("Could not merge PR (%s).", self.pull_request)
             logging.warning(exception, exc_info=True)
 
-            steps: list[Step] = []
-            CommentStep.add(
-                steps, self.pull_request, COULD_NOT_MERGE_CHANGES_UPSTREAM_COMMENT
-            )
-            CommentStep.add(
-                steps, run.servo_pr, COULD_NOT_MERGE_CHANGES_DOWNSTREAM_COMMENT
-            )
+            run.steps = []
+            run.add_step(CommentStep(
+                self.pull_request, COULD_NOT_MERGE_CHANGES_UPSTREAM_COMMENT
+            ))
+            run.add_step(CommentStep(
+                run.servo_pr, COULD_NOT_MERGE_CHANGES_DOWNSTREAM_COMMENT
+            ))
             self.pull_request.add_labels(["stale-servo-export"])
-            return steps
 
 
 class OpenPRStep(Step):
@@ -352,6 +343,7 @@ class SyncRun:
     servo_pr: PullRequest
     upstream_pr: Optional[PullRequest]
     step_callback: Optional[Callable[[Step], None]]
+    steps: list[Step] = dataclasses.field(default_factory=list)
 
     def make_comment(self, template: str) -> str:
         return template.format(
@@ -359,100 +351,21 @@ class SyncRun:
             servo_pr=self.servo_pr,
         )
 
-    def run_steps(self, steps: list[Step]) -> Optional[list[Step]]:
-        for step in steps:
-            new_steps = step.run(self)
+    def add_step(self, step) -> Optional[AsyncValue]:
+        self.steps.append(step)
+        return step.provides()
+
+    def run(self):
+        while self.steps:
+            step = self.steps.pop(0)
+            step.run(self)
             if self.step_callback:
                 self.step_callback(step)
-            if new_steps:
-                return new_steps
-        return None
-
-    def run(self, payload: dict):
-        steps: list[Step] = []
-        pull_data = payload["pull_request"]
-        if payload["action"] in ["opened", "synchronize", "reopened"]:
-            self.steps_for_new_pull_request_contents(steps, pull_data)
-        elif payload["action"] == "edited":
-            self.steps_for_edited_pull_request(steps, pull_data)
-        elif payload["action"] == "closed":
-            self.steps_for_closed_pull_request(steps, pull_data)
-
-        current_steps: Optional[list[Step]] = steps
-        while current_steps:
-            current_steps = self.run_steps(current_steps)
-
-    def steps_for_new_pull_request_contents(self, steps: list[Step], pull_data: dict):
-        is_upstreamable = (
-            len(
-                self.sync.local_servo_repo.run(
-                    "diff", f"HEAD~{pull_data['commits']}", "--", UPSTREAMABLE_PATH
-                )
-            )
-            > 0
-        )
-        logging.info("  → PR is upstreamable: '%s'", is_upstreamable)
-
-        title = pull_data['title']
-        body = pull_data['body']
-        if self.upstream_pr:
-            if is_upstreamable:
-                # In case this is adding new upstreamable changes to a PR that was closed
-                # due to a lack of upstreamable changes, force it to be reopened.
-                # Github refuses to reopen a PR that had a branch force pushed, so be sure
-                # to do this first.
-                ChangePRStep.add(steps, self.upstream_pr, "opened", title, body)
-                # Push the relevant changes to the upstream branch.
-                CreateOrUpdateBranchForPRStep.add(steps, pull_data, self.servo_pr)
-                CommentStep.add(steps, self.servo_pr, UPDATED_EXISTING_UPSTREAM_PR)
-            else:
-                # Close the upstream PR, since would contain no changes otherwise.
-                CommentStep.add(steps, self.upstream_pr, NO_UPSTREAMBLE_CHANGES_COMMENT)
-                ChangePRStep.add(steps, self.upstream_pr, "closed")
-                RemoveBranchForPRStep.add(steps, pull_data)
-                CommentStep.add(steps, self.servo_pr, CLOSING_EXISTING_UPSTREAM_PR)
-
-        elif is_upstreamable:
-            # Push the relevant changes to a new upstream branch.
-            branch = CreateOrUpdateBranchForPRStep.add(steps, pull_data, self.servo_pr)
-            # Create a pull request against the upstream repository for the new branch.
-            OpenPRStep.add(
-                steps, branch, self.sync.wpt, title, body,
-                ["servo-export", "do not merge yet"],
-            )
-
-            # Leave a comment to the new pull request in the original pull request.
-            CommentStep.add(steps, self.servo_pr, OPENED_NEW_UPSTREAM_PR)
-
-    def steps_for_edited_pull_request(self, steps: list[Step], pull_data: dict):
-        logging.info("Changing upstream PR title")
-        if self.upstream_pr:
-            ChangePRStep.add(
-                steps, self.upstream_pr, "open", pull_data["title"], pull_data["body"]
-            )
-            CommentStep.add(steps, self.servo_pr, UPDATED_TITLE_IN_EXISTING_UPSTREAM_PR)
-
-    def steps_for_closed_pull_request(self, steps: list[Step], pull_data: dict):
-        logging.info("Processing closed PR")
-        if not self.upstream_pr:
-            # If we don't recognize this PR, it never contained upstreamable changes.
-            return
-        if pull_data["merged"]:
-            # Since the upstreamable changes have now been merged locally, merge the
-            # corresponding upstream PR.
-            MergePRStep.add(steps, self.upstream_pr, ["do not merge yet"])
-        else:
-            # If a PR with upstreamable changes is closed without being merged, we
-            # don't want to merge the changes upstream either.
-            ChangePRStep.add(steps, self.upstream_pr, "closed")
-
-        # Always clean up our remote branch.
-        RemoveBranchForPRStep.add(steps, pull_data)
 
     @staticmethod
     def clean_up_body_text(body: str) -> str:
         # Turn all bare or relative issue references into unlinked ones, so that
-        # the PR doesn't inadvertantly close or link to issues in the upstream
+        # the PR doesn't inadvertently close or link to issues in the upstream
         # repository.
         return (
             re.sub(
@@ -522,7 +435,17 @@ class WPTSync:
             if upstream_pr:
                 logging.info("  → Detected existing upstream PR %s", upstream_pr)
 
-            SyncRun(self, servo_pr, upstream_pr, step_callback).run(payload)
+            run = SyncRun(self, servo_pr, upstream_pr, step_callback)
+
+            pull_data = payload["pull_request"]
+            if payload["action"] in ["opened", "synchronize", "reopened"]:
+                self.handle_new_pull_request_contents(run, pull_data)
+            elif payload["action"] == "edited":
+                self.handle_edited_pull_request(run, pull_data)
+            elif payload["action"] == "closed":
+                self.handle_closed_pull_request(run, pull_data)
+
+            run.run()
             return True
         except Exception as exception:
             if isinstance(exception, subprocess.CalledProcessError):
@@ -530,3 +453,70 @@ class WPTSync:
             logging.error(json.dumps(payload))
             logging.error(exception, exc_info=True)
             return False
+
+    def handle_new_pull_request_contents(self, run: SyncRun, pull_data: dict):
+        is_upstreamable = (
+            len(
+                self.local_servo_repo.run(
+                    "diff", f"HEAD~{pull_data['commits']}", "--", UPSTREAMABLE_PATH
+                )
+            )
+            > 0
+        )
+        logging.info("  → PR is upstreamable: '%s'", is_upstreamable)
+
+        title = pull_data['title']
+        body = pull_data['body']
+        if run.upstream_pr:
+            if is_upstreamable:
+                # In case this is adding new upstreamable changes to a PR that was closed
+                # due to a lack of upstreamable changes, force it to be reopened.
+                # Github refuses to reopen a PR that had a branch force pushed, so be sure
+                # to do this first.
+                run.add_step(ChangePRStep(run.upstream_pr, "opened", title, body))
+                # Push the relevant changes to the upstream branch.
+                run.add_step(CreateOrUpdateBranchForPRStep(pull_data, run.servo_pr))
+                run.add_step(CommentStep(run.servo_pr, UPDATED_EXISTING_UPSTREAM_PR))
+            else:
+                # Close the upstream PR, since would contain no changes otherwise.
+                run.add_step(CommentStep(run.upstream_pr, NO_UPSTREAMBLE_CHANGES_COMMENT))
+                run.add_step(ChangePRStep(run.upstream_pr, "closed"))
+                run.add_step(RemoveBranchForPRStep(pull_data))
+                run.add_step(CommentStep(run.servo_pr, CLOSING_EXISTING_UPSTREAM_PR))
+
+        elif is_upstreamable:
+            # Push the relevant changes to a new upstream branch.
+            branch = run.add_step(CreateOrUpdateBranchForPRStep(pull_data, run.servo_pr))
+            # Create a pull request against the upstream repository for the new branch.
+            run.add_step(OpenPRStep(
+                 branch, self.wpt, title, body,
+                ["servo-export", "do not merge yet"],
+            ))
+
+            # Leave a comment to the new pull request in the original pull request.
+            run.add_step(CommentStep(run.servo_pr, OPENED_NEW_UPSTREAM_PR))
+
+    def handle_edited_pull_request(self, run: SyncRun, pull_data: dict):
+        logging.info("Changing upstream PR title")
+        if run.upstream_pr:
+            run.add_step(ChangePRStep(
+                run.upstream_pr, "open", pull_data["title"], pull_data["body"]
+            ))
+            run.add_step(CommentStep(run.servo_pr, UPDATED_TITLE_IN_EXISTING_UPSTREAM_PR))
+
+    def handle_closed_pull_request(self, run: SyncRun, pull_data: dict):
+        logging.info("Processing closed PR")
+        if not run.upstream_pr:
+            # If we don't recognize this PR, it never contained upstreamable changes.
+            return
+        if pull_data["merged"]:
+            # Since the upstreamable changes have now been merged locally, merge the
+            # corresponding upstream PR.
+            run.add_step(MergePRStep(run.upstream_pr, ["do not merge yet"]))
+        else:
+            # If a PR with upstreamable changes is closed without being merged, we
+            # don't want to merge the changes upstream either.
+            run.add_step(ChangePRStep(run.upstream_pr, "closed"))
+
+        # Always clean up our remote branch.
+        run.add_step(RemoveBranchForPRStep(pull_data))
