@@ -368,6 +368,20 @@ class TestFullSyncRun(unittest.TestCase):
             ],
         )
 
+    def test_edited_with_upstream_pr(self):
+        self.assertListEqual(
+            self.run_test("edited.json", ["wpt.diff"],
+                          [MockPullRequest("servo-wpt-sync:servo_export_19620", 10)],
+            ),
+            [
+                'ChangePRStep:wpt/wpt#10:open:A cool new title:Reference #<!--...[136]',
+                'CommentStep:servo/servo#19620:✍ Updated existing upstream WPT pull request (wpt/wpt#10) title and body.'
+            ]
+        )
+
+    def test_edited_with_no_upstream_pr(self):
+        self.assertListEqual(self.run_test("edited.json", ["wpt.diff"], []), [])
+
     def test_synchronize_move_new_changes_to_preexisting_upstream_pr_with_multiple_commits(
         self,
     ):
